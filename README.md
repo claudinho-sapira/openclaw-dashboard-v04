@@ -6,9 +6,26 @@ Web-based management dashboard for OpenClaw agents (Luna, Bolt, Iris).
 
 - **Framework:** Next.js 15 (App Router)
 - **UI:** ShadCN + Tailwind CSS
+- **Animations:** Framer Motion
+- **Theme:** Dark mode support (system preference detection)
+- **Icons:** Lucide React
+- **Keyboard shortcuts:** Command palette (⌘K / Ctrl+K)
 - **Auth:** NextAuth.js (Google OAuth)
 - **Hosting:** Vercel
 - **Gateway:** Cloudflare Tunnel
+
+## Design Principles
+
+Following Complira's professional standard:
+
+- **Whitespace:** Generous spacing, breathing room for content
+- **Typography:** Clear hierarchy, readable font sizes
+- **Colors with purpose:** Semantic color system (success, warning, info, destructive)
+- **Dark mode:** First-class support, professional palette
+- **Smooth animations:** Subtle transitions using Framer Motion
+- **Keyboard navigation:** Command palette (⌘K) for quick actions
+- **Visual states:** Clear badges and indicators for status
+- **Accessibility:** Focus states, semantic HTML, ARIA labels
 
 ## Getting Started
 
