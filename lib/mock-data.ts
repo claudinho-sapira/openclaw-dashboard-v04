@@ -309,5 +309,18 @@ export const deleteDemoTask = (id: string) => {
 };
 
 export const isDemoMode = () => {
-  return process.env.DEMO_MODE === "true" || !process.env.GATEWAY_URL || process.env.GATEWAY_URL.includes("127.0.0.1");
+  const demoMode = process.env.DEMO_MODE;
+  const gatewayUrl = process.env.GATEWAY_URL;
+  
+  // Explicit check for DEMO_MODE env var
+  if (demoMode === "true" || demoMode === "1") {
+    return true;
+  }
+  
+  // Fallback: if no gateway URL or localhost, use demo mode
+  if (!gatewayUrl || gatewayUrl.includes("127.0.0.1") || gatewayUrl.includes("localhost")) {
+    return true;
+  }
+  
+  return false;
 };

@@ -77,8 +77,11 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Demo mode: return mock data
-    if (isDemoMode()) {
+    // Demo mode: return mock data (ALWAYS check this first)
+    const demoMode = isDemoMode();
+    console.log("[Agents API] Demo mode:", demoMode, "DEMO_MODE env:", process.env.DEMO_MODE);
+    
+    if (demoMode) {
       return NextResponse.json({ agents: MOCK_AGENTS });
     }
 
