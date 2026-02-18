@@ -1,13 +1,10 @@
 "use client"
 
 import { motion } from "framer-motion"
-import { Activity, AlertCircle, CheckCircle2, Clock } from "lucide-react"
-import Link from "next/link"
-import { Card, CardContent, CardHeader } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Progress } from "@/components/ui/progress"
+import { useRouter } from "next/navigation"
+import { cn } from "@/lib/utils"
 import { AgentStatus } from "@/lib/types"
-import { formatDistanceToNow } from "date-fns"
+import { Progress } from "@/components/ui/progress"
 
 interface AgentCardProps {
   agent: AgentStatus
@@ -15,113 +12,88 @@ interface AgentCardProps {
 }
 
 export function AgentCard({ agent, index }: AgentCardProps) {
-  const usagePercent = (agent.tokensUsed / agent.tokensLimit) * 100
-  const isWarning = usagePercent >= 80
-  const isCritical = usagePercent >= 90
+  const router = useRouter()
 
-  const statusConfig = {
-    running: {
-      icon: CheckCircle2,
-      color: "success",
-      label: "Running",
-    },
-    stopped: {
-      icon: Clock,
-      color: "secondary",
-      label: "Stopped",
-    },
-    error: {
-      icon: AlertCircle,
-      color: "destructive",
-      label: "Error",
-    },
+  const formatNumber = (num: number) => {
+    if (num >= 1000) {
+      return `${(num / 1000).toFixed(1)}k`
+    }
+    return num.toString()
   }
 
-  const status = statusConfig[agent.status]
-  const StatusIcon = status.icon
+  const tokenPercentage = (agent.tokensUsed / agent.tokensLimit) * 100
+
+  const statusColors = {
+    running: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100",
+    stopped: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-100",
+    error: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100",
+  }
 
   return (
     <motion.div
+      data-testid="agent-card"
+      layout
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, delay: index * 0.1 }}
+      exit={{ opacity: 0, y: -20 }}
+      transition={{ delay: index * 0.1 }}
+      whileHover={{ scale: 1.02 }}
+      className="cursor-pointer"
+      onClick={() => router.push(`/agents/${agent.id}`)}
     >
-      <Link href={`/agents/${agent.id}`}>
-        <Card className="h-full hover:shadow-lg transition-all duration-200 cursor-pointer group">
-          <CardHeader className="pb-3">
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-3">
-                <div className="text-4xl">{agent.identity.emoji}</div>
-                <div>
-                  <h3 className="text-xl font-semibold group-hover:text-primary transition-colors">
-                    {agent.identity.name}
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    {agent.identity.role}
-                  </p>
-                </div>
+      <div className="rounded-lg border bg-card text-card-foreground shadow-sm hover:shadow-md transition-shadow">
+        <div className="p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <span className="text-4xl">{agent.identity.emoji}</span>
+              <div>
+                <h3 className="font-semibold text-lg">{agent.identity.name}</h3>
+                <p className="text-sm text-muted-foreground">{agent.identity.role}</p>
               </div>
-              <Badge variant={status.color as any}>
-                <StatusIcon className="h-3 w-3 mr-1" />
-                {status.label}
-              </Badge>
             </div>
-          </CardHeader>
+            <span
+              data-testid="agent-status"
+              className={cn(
+                "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold",
+                statusColors[agent.status]
+              )}
+            >
+              {agent.status}
+            </span>
+          </div>
 
-          <CardContent className="space-y-4">
-            {/* Model */}
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Model</span>
-              <span className="font-medium">{agent.model}</span>
+          <div className="space-y-4">
+            <div>
+              <div className="flex items-center justify-between text-sm mb-2">
+                <span className="text-muted-foreground">Model</span>
+                <span className="font-mono text-xs">{agent.model}</span>
+              </div>
             </div>
 
-            {/* Token Usage */}
             <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Token Usage</span>
-                <div className="flex items-center gap-2">
-                  {(isWarning || isCritical) && (
-                    <Badge variant={isCritical ? "destructive" : "warning"} className="text-xs">
-                      {isCritical ? "Critical" : "Warning"}
-                    </Badge>
-                  )}
-                  <span className="font-medium">
-                    {usagePercent.toFixed(1)}%
-                  </span>
-                </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Tokens</span>
+                <span className="font-medium" data-testid="agent-tokens">
+                  {formatNumber(agent.tokensUsed)} / {formatNumber(agent.tokensLimit)}
+                </span>
               </div>
-              <Progress
-                value={usagePercent}
-                className="h-2"
-                indicatorClassName={
-                  isCritical
-                    ? "bg-destructive"
-                    : isWarning
-                    ? "bg-warning"
-                    : "bg-primary"
-                }
-              />
-              <div className="text-xs text-muted-foreground text-right">
-                {agent.tokensUsed.toLocaleString()} / {agent.tokensLimit.toLocaleString()}
-              </div>
+              <Progress value={tokenPercentage} className="h-2" />
             </div>
 
-            {/* Sessions */}
-            <div className="flex items-center justify-between text-sm">
+            <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">Active Sessions</span>
               <span className="font-medium">{agent.sessions}</span>
             </div>
 
-            {/* Last Active */}
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Activity className="h-3 w-3" />
-              <span>
-                Active {formatDistanceToNow(new Date(agent.lastActive), { addSuffix: true })}
+            <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Last Active</span>
+              <span className="font-medium">
+                {new Date(agent.lastActive).toLocaleString()}
               </span>
             </div>
-          </CardContent>
-        </Card>
-      </Link>
+          </div>
+        </div>
+      </div>
     </motion.div>
   )
 }
