@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog"
-import { RefreshCw, Activity, ArrowRight, ExternalLink, Clock, AlertCircle, Zap, Plus } from "lucide-react"
+import { RefreshCw, Activity, ArrowRight, ExternalLink, Clock, AlertCircle, Zap, Plus, CheckCircle2 } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 
 // Types
@@ -81,6 +81,8 @@ export default function KanbanPage() {
     description: string
     agent: string
   }>>([])
+  const [historySortBy, setHistorySortBy] = useState<"date" | "agent" | "duration">("date")
+  const [historyAgentFilter, setHistoryAgentFilter] = useState<string>("all")
 
   const fetchKanbanData = async () => {
     try {
@@ -259,9 +261,10 @@ export default function KanbanPage() {
       {/* Main Content */}
       <main className="container mx-auto px-6 py-8">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full grid-cols-4">
             <TabsTrigger value="kanban">Kanban Board</TabsTrigger>
             <TabsTrigger value="backlog">Backlog</TabsTrigger>
+            <TabsTrigger value="history">Task History</TabsTrigger>
             <TabsTrigger value="agent-detail">Agent Detail</TabsTrigger>
           </TabsList>
 
