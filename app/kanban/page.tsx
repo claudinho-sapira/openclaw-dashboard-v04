@@ -84,6 +84,8 @@ export default function KanbanPage() {
   const [historySortBy, setHistorySortBy] = useState<"date" | "agent" | "duration">("date")
   const [historyAgentFilter, setHistoryAgentFilter] = useState<string>("all")
   const [issueAssignments, setIssueAssignments] = useState<Record<string, string>>({})
+  const [gatewayActivity, setGatewayActivity] = useState<any[]>([])
+  const [gatewayError, setGatewayError] = useState<string | null>(null)
 
   const fetchKanbanData = async (retryCount = 0) => {
     try {
@@ -181,8 +183,13 @@ export default function KanbanPage() {
         console.error("[Kanban] Error details:", errorData)
       }
 
-      // Fetch agents for filter
-      const agentsRes = await fetch("/api/agents")
+      // Fetch agents and gateway activity
+      const [agentsRes, activityRes] = await Promise.all([
+        fetch("/api/agents"),
+        fetch("/api/gateway/activity")
+      ])
+
+      // Handle agents
       if (agentsRes.ok) {
         const agentsData = await agentsRes.json()
         const agentStatuses: AgentStatus[] = (agentsData.agents || []).map((agent: any) => ({
@@ -226,6 +233,21 @@ export default function KanbanPage() {
           }
         }
         setHeartbeatTasks(heartbeatTasksTemp)
+      } else {
+        const errorData = await agentsRes.json().catch(() => ({}))
+        setGatewayError(`Gateway offline: ${errorData.error || 'Cannot reach OpenClaw gateway'}`)
+        console.error("[Kanban] Gateway error:", errorData)
+      }
+
+      // Handle activity
+      if (activityRes.ok) {
+        const activityData = await activityRes.json()
+        setGatewayActivity(activityData.activities || [])
+        setGatewayError(null)
+        console.log("[Kanban] Loaded", activityData.activities?.length || 0, "gateway activities")
+      } else {
+        const errorData = await activityRes.json().catch(() => ({}))
+        console.warn("[Kanban] Activity fetch failed:", errorData)
       }
 
       setLastUpdate(new Date())
@@ -542,239 +564,95 @@ export default function KanbanPage() {
             )}
           </TabsContent>
 
-          {/* SAP-28: Backlog Tab */}
+          {/* SAP-36: Backlog Tab - Gateway Data */}
           <TabsContent value="backlog" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Backlog</CardTitle>
-                <CardDescription>All pending tasks from Linear, HEARTBEAT.md, and manual entries</CardDescription>
+                <CardTitle>Active Sessions</CardTitle>
+                <CardDescription>Current agent sessions and pending tasks from gateway</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="flex items-center gap-4 mb-4">
-                  <Label htmlFor="backlog-filter" className="text-sm font-medium">
-                    Source:
-                  </Label>
-                  <Select value={backlogFilter} onValueChange={(value: any) => setBacklogFilter(value)}>
-                    <SelectTrigger id="backlog-filter" className="w-[200px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Sources</SelectItem>
-                      <SelectItem value="linear">Linear Only</SelectItem>
-                      <SelectItem value="config">HEARTBEAT.md</SelectItem>
-                      <SelectItem value="manual">Manual Tasks</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                {gatewayError && (
+                  <div className="mb-4 p-4 border border-red-500/50 bg-red-50 dark:bg-red-950/20 rounded-lg">
+                    <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+                      <AlertCircle className="h-5 w-5" />
+                      <div>
+                        <p className="font-semibold">Gateway Offline</p>
+                        <p className="text-sm">{gatewayError}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {isLoading ? (
                   <div className="flex items-center justify-center py-12">
                     <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
                   </div>
+                ) : gatewayError ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <AlertCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg font-medium">Cannot connect to gateway</p>
+                    <p className="text-sm mt-1">Check that OpenClaw gateway is running</p>
+                  </div>
                 ) : (
                   <div className="space-y-3">
-                    {/* Linear Backlog Issues */}
-                    {(backlogFilter === "all" || backlogFilter === "linear") && (
-                      <>
-                        {issues.filter(i => i.column === "backlog").map((issue) => {
-                          const assignedAgentId = getIssueAgent(issue.id)
-                          const agent = agents.find(a => a.agentId === assignedAgentId)
-                          return (
-                            <Card key={issue.id} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => openIssueModal(issue)}>
-                              <CardHeader className="pb-3">
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="flex-1">
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <Badge variant="secondary" className="text-xs">
-                                        Linear
-                                      </Badge>
-                                      <span className="text-xs font-mono text-muted-foreground">
-                                        {issue.identifier}
-                                      </span>
-                                      <Badge 
-                                        variant={issue.priority === 0 ? "destructive" : "outline"}
-                                        className={`text-xs ${getPriorityColor(issue.priority)}`}
-                                      >
-                                        {issue.priority === 0 && "🔴"}
-                                        {issue.priority === 1 && "🟠"}
-                                        {issue.priority === 2 && "🟡"}
-                                        {issue.priority === 3 && "🔵"}
-                                        {issue.priority === 4 && "⚪"}
-                                        {" "}
-                                        {issue.priorityLabel}
-                                      </Badge>
-                                    </div>
-                                    <CardTitle className="text-sm">{issue.title}</CardTitle>
-                                  </div>
-                                  {agent && (
-                                    <div className="flex items-center gap-1 text-sm">
-                                      <span>{agent.agentEmoji}</span>
-                                      <span className="text-xs">{agent.agentName}</span>
-                                    </div>
-                                  )}
+                    {/* Active Sessions from Gateway */}
+                    {gatewayActivity.length > 0 ? (
+                      gatewayActivity.map((activity) => (
+                        <Card key={activity.id} className="hover:shadow-md transition-shadow">
+                          <CardHeader className="pb-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <Badge variant="default" className="text-xs">
+                                    <Activity className="h-3 w-3 mr-1" />
+                                    {activity.status}
+                                  </Badge>
+                                  <span className="text-xs font-mono text-muted-foreground">
+                                    {activity.channel}
+                                  </span>
                                 </div>
-                              </CardHeader>
-                            </Card>
-                          )
-                        })}
-                      </>
-                    )}
-
-                    {/* HEARTBEAT.md Tasks */}
-                    {(backlogFilter === "all" || backlogFilter === "config") && (
-                      <>
-                        {heartbeatTasks.map((task) => {
-                          const agent = agents.find(a => a.agentId === task.agent)
-                          return (
-                            <Card key={task.id}>
-                              <CardHeader className="pb-3">
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="flex-1">
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <Badge variant="secondary" className="text-xs">
-                                        HEARTBEAT
-                                      </Badge>
-                                    </div>
-                                    <CardTitle className="text-sm">{task.description}</CardTitle>
-                                  </div>
-                                  {agent && (
-                                    <div className="flex items-center gap-1 text-sm">
-                                      <span>{agent.agentEmoji}</span>
-                                      <span className="text-xs">{agent.agentName}</span>
-                                    </div>
-                                  )}
+                                <CardTitle className="text-sm">{activity.sessionKey}</CardTitle>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Model: {activity.model} • Tokens: {activity.tokens}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-1 text-sm">
+                                  <span>{activity.agentEmoji}</span>
+                                  <span className="text-xs font-semibold">{activity.agentName}</span>
                                 </div>
-                              </CardHeader>
-                            </Card>
-                          )
-                        })}
-                      </>
-                    )}
-
-                    {/* Manual Tasks */}
-                    {(backlogFilter === "all" || backlogFilter === "manual") && (
-                      <>
-                        {manualTasks.map((task) => {
-                          const agent = agents.find(a => a.agentId === task.assignedAgent || undefined)
-                          return (
-                            <Card key={task.id}>
-                              <CardHeader className="pb-3">
-                                <div className="flex items-center justify-between gap-2">
-                                  <div className="flex-1">
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <Badge variant="secondary" className="text-xs">
-                                        Manual
-                                      </Badge>
-                                    </div>
-                                    <CardTitle className="text-sm">{task.description}</CardTitle>
-                                  </div>
-                                  {agent && (
-                                    <div className="flex items-center gap-1 text-sm">
-                                      <span>{agent.agentEmoji}</span>
-                                      <span className="text-xs">{agent.agentName}</span>
-                                    </div>
-                                  )}
+                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                  <Clock className="h-3 w-3" />
+                                  {new Date(activity.timestamp).toLocaleTimeString()}
                                 </div>
-                              </CardHeader>
-                            </Card>
-                          )
-                        })}
-                      </>
-                    )}
-
-                    {/* Empty State */}
-                    {issues.filter(i => i.column === "backlog").length === 0 && 
-                     heartbeatTasks.length === 0 && 
-                     manualTasks.length === 0 && (
+                              </div>
+                            </div>
+                          </CardHeader>
+                        </Card>
+                      ))
+                    ) : (
                       <div className="text-center py-12 text-muted-foreground">
-                        <CheckCircle2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                        <p className="text-lg font-medium">No backlog items</p>
-                        <p className="text-sm mt-1">All tasks are either in progress or completed</p>
+                        <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                        <p className="text-lg font-medium">No active sessions</p>
+                        <p className="text-sm mt-1">Start a conversation with an agent to see activity here</p>
                       </div>
                     )}
                   </div>
                 )}
               </CardContent>
             </Card>
-
-            {/* Create Manual Task Button */}
-            <Dialog open={newTaskOpen} onOpenChange={setNewTaskOpen}>
-              <DialogTrigger asChild>
-                <Button className="w-full">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Create Manual Task
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <DialogHeader>
-                  <DialogTitle>Create Manual Task</DialogTitle>
-                  <DialogDescription>
-                    Add a task that's not tracked in Linear
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <div>
-                    <Label htmlFor="task-desc">Task Description</Label>
-                    <Input
-                      id="task-desc"
-                      value={newTaskDescription}
-                      onChange={(e) => setNewTaskDescription(e.target.value)}
-                      placeholder="What needs to be done?"
-                    />
-                  </div>
-                  <div>
-                    <Label htmlFor="task-agent">Assign to Agent (optional)</Label>
-                    <Select value={newTaskAgent} onValueChange={setNewTaskAgent}>
-                      <SelectTrigger id="task-agent">
-                        <SelectValue placeholder="Select agent..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="">Unassigned</SelectItem>
-                        {agents.map(agent => (
-                          <SelectItem key={agent.agentId} value={agent.agentId}>
-                            {agent.agentEmoji} {agent.agentName}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button variant="outline" onClick={() => setNewTaskOpen(false)}>
-                    Cancel
-                  </Button>
-                  <Button onClick={createManualTask}>
-                    Create Task
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
           </TabsContent>
 
-          {/* SAP-29: Task History Tab */}
+          {/* SAP-36: Task History Tab - Gateway Activity */}
           <TabsContent value="history" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Task History</CardTitle>
-                <CardDescription>Completed tasks from Linear</CardDescription>
+                <CardTitle>Activity History</CardTitle>
+                <CardDescription>Recent agent activity from gateway</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="flex items-center gap-4 mb-4">
-                  <div className="flex items-center gap-2">
-                    <Label htmlFor="history-sort" className="text-sm font-medium">
-                      Sort by:
-                    </Label>
-                    <Select value={historySortBy} onValueChange={(value: any) => setHistorySortBy(value)}>
-                      <SelectTrigger id="history-sort" className="w-[150px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="date">Date</SelectItem>
-                        <SelectItem value="agent">Agent</SelectItem>
-                        <SelectItem value="duration">Duration</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
                   <div className="flex items-center gap-2">
                     <Label htmlFor="history-agent-filter" className="text-sm font-medium">
                       Agent:
@@ -795,91 +673,91 @@ export default function KanbanPage() {
                   </div>
                 </div>
 
+                {gatewayError && (
+                  <div className="mb-4 p-4 border border-red-500/50 bg-red-50 dark:bg-red-950/20 rounded-lg">
+                    <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
+                      <AlertCircle className="h-5 w-5" />
+                      <div>
+                        <p className="font-semibold">Gateway Offline</p>
+                        <p className="text-sm">{gatewayError}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {isLoading ? (
                   <div className="flex items-center justify-center py-12">
                     <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
                   </div>
+                ) : gatewayError ? (
+                  <div className="text-center py-12 text-muted-foreground">
+                    <AlertCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p className="text-lg font-medium">Cannot connect to gateway</p>
+                    <p className="text-sm mt-1">Check that OpenClaw gateway is running</p>
+                  </div>
                 ) : (
                   <>
                     {(() => {
-                      let completedIssues = issues.filter(i => i.column === "done")
-                      
-                      // Filter by agent
+                      // Filter activity by agent
+                      let filteredActivity = gatewayActivity
                       if (historyAgentFilter !== "all") {
-                        completedIssues = completedIssues.filter(issue => 
-                          getIssueAgent(issue.id) === historyAgentFilter
-                        )
+                        filteredActivity = gatewayActivity.filter(a => a.agentId === historyAgentFilter)
                       }
 
-                      // Sort
-                      if (historySortBy === "date") {
-                        completedIssues.sort((a, b) => 
-                          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-                        )
-                      } else if (historySortBy === "agent") {
-                        completedIssues.sort((a, b) => {
-                          const agentA = getIssueAgent(a.id) || ""
-                          const agentB = getIssueAgent(b.id) || ""
-                          return agentA.localeCompare(agentB)
-                        })
-                      } else if (historySortBy === "duration") {
-                        completedIssues.sort((a, b) => {
-                          const durationA = new Date(a.updatedAt).getTime() - new Date(a.createdAt).getTime()
-                          const durationB = new Date(b.updatedAt).getTime() - new Date(b.createdAt).getTime()
-                          return durationB - durationA
-                        })
-                      }
-
-                      if (completedIssues.length === 0) {
+                      if (filteredActivity.length === 0) {
                         return (
                           <div className="text-center py-12 text-muted-foreground">
                             <Clock className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                            <p className="text-lg font-medium">No completed tasks yet</p>
-                            <p className="text-sm mt-1">Completed tasks will appear here</p>
+                            <p className="text-lg font-medium">No activity yet</p>
+                            <p className="text-sm mt-1">Agent activity will appear here</p>
                           </div>
                         )
                       }
 
                       return (
                         <div className="space-y-3">
-                          {completedIssues.map((issue) => {
-                            const assignedAgentId = getIssueAgent(issue.id)
-                            const agent = agents.find(a => a.agentId === assignedAgentId)
-                            const duration = new Date(issue.updatedAt).getTime() - new Date(issue.createdAt).getTime()
-                            const durationDays = Math.floor(duration / (1000 * 60 * 60 * 24))
-                            const durationHours = Math.floor((duration % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
-                            const durationStr = durationDays > 0 ? `${durationDays}d ${durationHours}h` : `${durationHours}h`
+                          {filteredActivity.map((activity) => {
+                            const timeAgo = new Date(activity.timestamp)
+                            const now = new Date()
+                            const diffMs = now.getTime() - timeAgo.getTime()
+                            const diffMins = Math.floor(diffMs / 60000)
+                            const diffHours = Math.floor(diffMins / 60)
+                            const diffDays = Math.floor(diffHours / 24)
+                            
+                            let timeStr = ""
+                            if (diffDays > 0) timeStr = `${diffDays}d ago`
+                            else if (diffHours > 0) timeStr = `${diffHours}h ago`
+                            else if (diffMins > 0) timeStr = `${diffMins}m ago`
+                            else timeStr = "just now"
 
                             return (
-                              <Card key={issue.id} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => openIssueModal(issue)}>
+                              <Card key={activity.id} className="hover:shadow-md transition-shadow">
                                 <CardHeader className="pb-3">
                                   <div className="flex items-center justify-between gap-4">
                                     <div className="flex-1">
                                       <div className="flex items-center gap-2 mb-1">
-                                        <span className="text-xs font-mono text-muted-foreground">
-                                          {issue.identifier}
-                                        </span>
                                         <Badge variant="outline" className="text-xs">
-                                          <CheckCircle2 className="h-3 w-3 mr-1" />
-                                          Done
+                                          <Activity className="h-3 w-3 mr-1" />
+                                          {activity.type}
                                         </Badge>
+                                        <span className="text-xs font-mono text-muted-foreground">
+                                          {activity.channel}
+                                        </span>
                                       </div>
-                                      <CardTitle className="text-sm">{issue.title}</CardTitle>
+                                      <CardTitle className="text-sm">{activity.sessionKey}</CardTitle>
+                                      <p className="text-xs text-muted-foreground mt-1">
+                                        {activity.model} • {activity.tokens} tokens
+                                      </p>
                                     </div>
                                     <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                                      {agent && (
-                                        <div className="flex items-center gap-1">
-                                          <span>{agent.agentEmoji}</span>
-                                          <span className="text-xs">{agent.agentName}</span>
-                                        </div>
-                                      )}
+                                      <div className="flex items-center gap-1">
+                                        <span>{activity.agentEmoji}</span>
+                                        <span className="text-xs">{activity.agentName}</span>
+                                      </div>
                                       <div className="flex items-center gap-1">
                                         <Clock className="h-3 w-3" />
-                                        <span className="text-xs">{durationStr}</span>
+                                        <span className="text-xs">{timeStr}</span>
                                       </div>
-                                      <span className="text-xs">
-                                        {new Date(issue.updatedAt).toLocaleDateString()}
-                                      </span>
                                     </div>
                                   </div>
                                 </CardHeader>
