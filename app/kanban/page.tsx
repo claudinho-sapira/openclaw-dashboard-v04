@@ -2,17 +2,36 @@
 
 import { useState, useEffect } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
-import { RefreshCw, Activity, Users, CheckCircle2, Clock, Plus, Filter } from "lucide-react"
-import { motion } from "framer-motion"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog"
+import { RefreshCw, Activity, ArrowRight, ExternalLink, Clock, AlertCircle, Zap } from "lucide-react"
+import { motion, AnimatePresence } from "framer-motion"
 
 // Types
+interface LinearIssue {
+  id: string
+  identifier: string
+  title: string
+  description: string
+  state: string
+  stateType: string
+  column: "backlog" | "in-progress" | "done"
+  priority: number
+  priorityLabel: string
+  assignee: string | null
+  assigneeId: string | null
+  createdAt: string
+  updatedAt: string
+  url: string
+  labels: Array<{ id: string; name: string; color: string }>
+  isNext: boolean
+}
+
 interface AgentSession {
   key: string
   kind: string
@@ -33,101 +52,57 @@ interface AgentStatus {
   sessions: AgentSession[]
 }
 
-interface QuickStats {
-  totalActiveTasks: number
-  idleAgents: number
-  completedToday: number
-}
-
-interface BacklogTask {
-  id: string
-  source: "config" | "message" | "manual"
-  description: string
-  assignedAgent: string | null
-  status: "pending" | "assigned" | "in-progress"
-  createdAt: string
-}
-
-interface CompletedTask {
-  id: string
-  description: string
-  agent: string
-  source: "config" | "message" | "manual"
-  startedAt: string
-  completedAt: string
-  duration: number // in seconds
-}
-
 const POLLING_INTERVAL = 15000 // 15 seconds
 
 export default function KanbanPage() {
+  const [issues, setIssues] = useState<LinearIssue[]>([])
   const [agents, setAgents] = useState<AgentStatus[]>([])
-  const [stats, setStats] = useState<QuickStats>({ totalActiveTasks: 0, idleAgents: 0, completedToday: 0 })
   const [isLoading, setIsLoading] = useState(true)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
-  const [activeTab, setActiveTab] = useState("dashboard")
+  const [activeTab, setActiveTab] = useState("kanban")
   const [selectedAgent, setSelectedAgent] = useState<AgentStatus | null>(null)
   const [agentSessions, setAgentSessions] = useState<AgentSession[]>([])
   const [loadingSessions, setLoadingSessions] = useState(false)
-  const [backlogTasks, setBacklogTasks] = useState<BacklogTask[]>([])
-  const [taskFilter, setTaskFilter] = useState<string>("all")
   const [agentFilter, setAgentFilter] = useState<string>("all")
-  const [newTaskOpen, setNewTaskOpen] = useState(false)
-  const [newTaskDescription, setNewTaskDescription] = useState("")
-  const [newTaskAgent, setNewTaskAgent] = useState<string>("")
-  const [completedTasks, setCompletedTasks] = useState<CompletedTask[]>([])
-  const [historyTab, setHistoryTab] = useState<"active" | "completed">("active")
-  const [historySortBy, setHistorySortBy] = useState<"date" | "agent" | "duration">("date")
-  const [historyAgentFilter, setHistoryAgentFilter] = useState<string>("all")
+  const [selectedIssue, setSelectedIssue] = useState<LinearIssue | null>(null)
+  const [issueModalOpen, setIssueModalOpen] = useState(false)
 
-  const fetchAgentData = async () => {
+  const fetchKanbanData = async () => {
     try {
-      // Fetch sessions from gateway
-      const res = await fetch("/api/gateway/activity")
-      if (res.ok) {
-        const data = await res.json()
-        
-        // Get detailed sessions for each agent
-        const agentsRes = await fetch("/api/agents")
-        const agentsData = await agentsRes.json()
-        
-        // Transform to AgentStatus format with safe access
-        const agentStatuses: AgentStatus[] = (agentsData.agents || []).map((agent: any) => {
-          const activity = data.activities?.find((a: any) => a.agentId === agent.id)
-          return {
-            agentId: agent.id || "unknown",
-            agentName: agent.identity?.name || agent.id || "Unknown",
-            agentEmoji: agent.identity?.emoji || "🤖",
-            status: activity?.status || "idle",
-            sessionCount: agent.sessions || 0,
-            lastActivity: agent.lastActive || new Date().toISOString(),
-            sessions: [], // Will be populated in Agent Detail view
-          }
-        })
-
-        setAgents(agentStatuses)
-
-        // Calculate quick stats
-        const activeTasks = agentStatuses.reduce((sum, a) => sum + a.sessionCount, 0)
-        const idleCount = agentStatuses.filter(a => a.status === "idle").length
-        setStats({
-          totalActiveTasks: activeTasks,
-          idleAgents: idleCount,
-          completedToday: 0, // TODO: fetch from history
-        })
-
-        setLastUpdate(new Date())
+      // Fetch Linear issues
+      const issuesRes = await fetch("/api/linear/issues")
+      if (issuesRes.ok) {
+        const data = await issuesRes.json()
+        setIssues(data.issues || [])
       }
+
+      // Fetch agents for filter
+      const agentsRes = await fetch("/api/agents")
+      if (agentsRes.ok) {
+        const agentsData = await agentsRes.json()
+        const agentStatuses: AgentStatus[] = (agentsData.agents || []).map((agent: any) => ({
+          agentId: agent.id || "unknown",
+          agentName: agent.identity?.name || agent.id || "Unknown",
+          agentEmoji: agent.identity?.emoji || "🤖",
+          status: "active",
+          sessionCount: agent.sessions || 0,
+          lastActivity: agent.lastActive || new Date().toISOString(),
+          sessions: [],
+        }))
+        setAgents(agentStatuses)
+      }
+
+      setLastUpdate(new Date())
     } catch (error) {
-      console.error("Failed to fetch agent data:", error)
+      console.error("Failed to fetch kanban data:", error)
     } finally {
       setIsLoading(false)
     }
   }
 
   useEffect(() => {
-    fetchAgentData()
-    const interval = setInterval(fetchAgentData, POLLING_INTERVAL)
+    fetchKanbanData()
+    const interval = setInterval(fetchKanbanData, POLLING_INTERVAL)
     return () => clearInterval(interval)
   }, [])
 
@@ -150,86 +125,36 @@ export default function KanbanPage() {
     }
   }
 
-  const createManualTask = () => {
-    if (!newTaskDescription.trim()) return
+  const openIssueModal = (issue: LinearIssue) => {
+    setSelectedIssue(issue)
+    setIssueModalOpen(true)
+  }
 
-    const task: BacklogTask = {
-      id: Date.now().toString(),
-      source: "manual",
-      description: newTaskDescription,
-      assignedAgent: newTaskAgent || null,
-      status: newTaskAgent ? "assigned" : "pending",
-      createdAt: new Date().toISOString(),
-    }
-
-    setBacklogTasks([...backlogTasks, task])
-    setNewTaskDescription("")
-    setNewTaskAgent("")
-    setNewTaskOpen(false)
-
-    // TODO: Send to agent via sessions_send if assigned
-    if (newTaskAgent) {
-      console.log(`TODO: Send task to ${newTaskAgent} via sessions_send`)
+  const getPriorityColor = (priority: number) => {
+    switch (priority) {
+      case 0: return "text-red-600 dark:text-red-400"
+      case 1: return "text-orange-600 dark:text-orange-400"
+      case 2: return "text-yellow-600 dark:text-yellow-400"
+      case 3: return "text-blue-600 dark:text-blue-400"
+      default: return "text-gray-600 dark:text-gray-400"
     }
   }
 
-  const assignTask = (taskId: string, agentId: string) => {
-    setBacklogTasks(backlogTasks.map(task => 
-      task.id === taskId 
-        ? { ...task, assignedAgent: agentId, status: "assigned" }
-        : task
-    ))
-    // TODO: Call sessions_send to notify agent
-    console.log(`TODO: Assign task ${taskId} to ${agentId} via sessions_send`)
+  const getPriorityIcon = (priority: number) => {
+    if (priority === 0) return <Zap className="h-3 w-3" />
+    if (priority === 1) return <AlertCircle className="h-3 w-3" />
+    return <Clock className="h-3 w-3" />
   }
 
-  const filteredTasks = backlogTasks.filter(task => {
-    if (taskFilter !== "all" && task.source !== taskFilter) return false
-    if (agentFilter !== "all" && task.assignedAgent !== agentFilter) return false
-    return true
-  })
+  const filteredIssues = agentFilter === "all" 
+    ? issues 
+    : issues.filter(issue => issue.assigneeId === agentFilter)
 
-  const activeTasks = backlogTasks.filter(task => task.status === "in-progress")
-
-  const filteredCompletedTasks = completedTasks
-    .filter(task => historyAgentFilter === "all" || task.agent === historyAgentFilter)
-    .sort((a, b) => {
-      switch (historySortBy) {
-        case "date":
-          return new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()
-        case "agent":
-          return a.agent.localeCompare(b.agent)
-        case "duration":
-          return b.duration - a.duration
-        default:
-          return 0
-      }
-    })
-
-  const formatDuration = (seconds: number) => {
-    const hours = Math.floor(seconds / 3600)
-    const minutes = Math.floor((seconds % 3600) / 60)
-    if (hours > 0) return `${hours}h ${minutes}m`
-    return `${minutes}m`
-  }
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "active": return "bg-green-500"
-      case "idle": return "bg-gray-400"
-      case "waiting": return "bg-yellow-500"
-      default: return "bg-gray-300"
-    }
-  }
-
-  const getStatusBadgeVariant = (status: string) => {
-    switch (status) {
-      case "active": return "default"
-      case "idle": return "secondary"
-      case "waiting": return "outline"
-      default: return "secondary"
-    }
-  }
+  const columns = [
+    { id: "backlog", title: "Backlog", issues: filteredIssues.filter(i => i.column === "backlog") },
+    { id: "in-progress", title: "In Progress", issues: filteredIssues.filter(i => i.column === "in-progress") },
+    { id: "done", title: "Done", issues: filteredIssues.filter(i => i.column === "done") },
+  ]
 
   return (
     <>
@@ -238,22 +163,22 @@ export default function KanbanPage() {
         <div className="container mx-auto px-6 py-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">Agent Dashboard</h1>
+              <h1 className="text-3xl font-bold tracking-tight">Task Board</h1>
               <p className="text-muted-foreground mt-1">
-                Real-time visibility into agent activity and task backlog
+                Real-time Linear integration • Sprint progress
               </p>
             </div>
             <div className="flex items-center gap-4">
               {lastUpdate && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <Activity className="h-4 w-4 animate-pulse text-green-500" />
-                  <span>Live • Updated {lastUpdate.toLocaleTimeString()}</span>
+                  <span>Live • {lastUpdate.toLocaleTimeString()}</span>
                 </div>
               )}
               <Button
                 variant="outline"
                 size="sm"
-                onClick={fetchAgentData}
+                onClick={fetchKanbanData}
                 disabled={isLoading}
               >
                 <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
@@ -267,321 +192,23 @@ export default function KanbanPage() {
       {/* Main Content */}
       <main className="container mx-auto px-6 py-8">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="dashboard">Dashboard</TabsTrigger>
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="kanban">Kanban Board</TabsTrigger>
             <TabsTrigger value="agent-detail">Agent Detail</TabsTrigger>
-            <TabsTrigger value="backlog">Backlog</TabsTrigger>
-            <TabsTrigger value="history">Task History</TabsTrigger>
           </TabsList>
 
-          {/* SAP-22: Dashboard Home */}
-          <TabsContent value="dashboard" className="space-y-6">
-            {/* Quick Stats */}
-            <div className="grid md:grid-cols-3 gap-4">
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium">Active Tasks</CardTitle>
-                  <Activity className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{stats.totalActiveTasks}</div>
-                  <p className="text-xs text-muted-foreground">Across all agents</p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium">Idle Agents</CardTitle>
-                  <Users className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{stats.idleAgents}</div>
-                  <p className="text-xs text-muted-foreground">Ready for work</p>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-sm font-medium">Completed Today</CardTitle>
-                  <CheckCircle2 className="h-4 w-4 text-muted-foreground" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-bold">{stats.completedToday}</div>
-                  <p className="text-xs text-muted-foreground">Tasks finished</p>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Agent Cards Grid */}
-            <div>
-              <h2 className="text-lg font-semibold mb-4">Agents</h2>
-              {isLoading && agents.length === 0 ? (
-                <div className="grid md:grid-cols-3 gap-6">
-                  {[1, 2, 3].map((i) => (
-                    <div key={i} className="h-48 rounded-lg border bg-card animate-pulse" />
-                  ))}
-                </div>
-              ) : (
-                <div className="grid md:grid-cols-3 gap-6">
-                  {agents.map((agent, index) => (
-                    <motion.div
-                      key={agent.agentId}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: index * 0.1 }}
-                    >
-                      <Card className="hover:shadow-lg transition-shadow cursor-pointer"
-                            onClick={() => selectAgent(agent)}>
-                        <CardHeader className="pb-3">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <span className="text-4xl">{agent.agentEmoji}</span>
-                              <div>
-                                <CardTitle className="text-base">{agent.agentName}</CardTitle>
-                                <p className="text-sm text-muted-foreground">{agent.agentId}</p>
-                              </div>
-                            </div>
-                            <Badge variant={getStatusBadgeVariant(agent.status)}>
-                              {agent.status}
-                            </Badge>
-                          </div>
-                        </CardHeader>
-                        <CardContent className="space-y-3">
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="text-muted-foreground">Active Sessions</span>
-                            <span className="font-medium">{agent.sessionCount}</span>
-                          </div>
-                          <div className="flex items-center justify-between text-sm">
-                            <span className="text-muted-foreground">Last Activity</span>
-                            <div className="flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              <span className="font-medium text-xs">
-                                {new Date(agent.lastActivity).toLocaleTimeString()}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <div className={`h-2 w-2 rounded-full ${getStatusColor(agent.status)}`} />
-                            <span className="text-xs text-muted-foreground">
-                              {agent.status === "active" ? "Working on tasks" : 
-                               agent.status === "idle" ? "Available" : "Waiting for input"}
-                            </span>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </motion.div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </TabsContent>
-
-          {/* SAP-23: Agent Detail */}
-          <TabsContent value="agent-detail" className="space-y-4">
-            {!selectedAgent ? (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Agent Detail</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-muted-foreground">Select an agent from the Dashboard to view detailed sessions.</p>
-                </CardContent>
-              </Card>
-            ) : (
-              <>
-                {/* Agent Header */}
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <span className="text-5xl">{selectedAgent.agentEmoji}</span>
-                        <div>
-                          <CardTitle className="text-2xl">{selectedAgent.agentName}</CardTitle>
-                          <p className="text-sm text-muted-foreground">Agent ID: {selectedAgent.agentId}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <Badge variant={getStatusBadgeVariant(selectedAgent.status)} className="text-sm">
-                          {selectedAgent.status}
-                        </Badge>
-                        <Button size="sm">
-                          Assign Task
-                        </Button>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="grid md:grid-cols-3 gap-4">
-                    <div>
-                      <p className="text-sm text-muted-foreground">Active Sessions</p>
-                      <p className="text-2xl font-bold">{selectedAgent.sessionCount}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground">Last Activity</p>
-                      <p className="text-lg font-medium">
-                        {new Date(selectedAgent.lastActivity).toLocaleString()}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-muted-foreground">Status</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <div className={`h-3 w-3 rounded-full ${getStatusColor(selectedAgent.status)}`} />
-                        <p className="text-lg font-medium capitalize">{selectedAgent.status}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* Sessions List */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Active Sessions</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    {loadingSessions ? (
-                      <div className="space-y-3">
-                        {[1, 2, 3].map((i) => (
-                          <div key={i} className="h-20 rounded border bg-muted animate-pulse" />
-                        ))}
-                      </div>
-                    ) : agentSessions.length === 0 ? (
-                      <p className="text-muted-foreground text-center py-8">No active sessions</p>
-                    ) : (
-                      <div className="space-y-3">
-                        {agentSessions.map((session) => (
-                          <motion.div
-                            key={session.key}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            className="border rounded-lg p-4 hover:bg-muted/50 transition-colors"
-                          >
-                            <div className="flex items-start justify-between">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <Badge variant="outline" className="text-xs">
-                                    {session.kind}
-                                  </Badge>
-                                  <Badge variant="secondary" className="text-xs">
-                                    {session.channel}
-                                  </Badge>
-                                </div>
-                                <p className="text-sm font-medium line-clamp-2">
-                                  {session.displayName || session.key}
-                                </p>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  Model: {session.model} • Tokens: {session.totalTokens?.toLocaleString() || 0}
-                                </p>
-                              </div>
-                              <div className="text-right ml-4">
-                                <p className="text-xs text-muted-foreground">Last active</p>
-                                <p className="text-sm font-medium">
-                                  {new Date(session.updatedAt).toLocaleTimeString()}
-                                </p>
-                              </div>
-                            </div>
-                          </motion.div>
-                        ))}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-
-                {/* Message History (placeholder for now) */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Recent Messages</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <p className="text-muted-foreground text-center py-4">
-                      Message history will appear here
-                    </p>
-                  </CardContent>
-                </Card>
-              </>
-            )}
-          </TabsContent>
-
-          {/* SAP-24: Backlog */}
-          <TabsContent value="backlog" className="space-y-4">
-            {/* Header with filters */}
+          {/* SAP-26: Kanban Board */}
+          <TabsContent value="kanban" className="space-y-4">
+            {/* Filter */}
             <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>Task Backlog</CardTitle>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Unified view from config files, sessions, and manual input
-                    </p>
-                  </div>
-                  <Dialog open={newTaskOpen} onOpenChange={setNewTaskOpen}>
-                    <DialogTrigger asChild>
-                      <Button>
-                        <Plus className="h-4 w-4 mr-2" />
-                        New Task
-                      </Button>
-                    </DialogTrigger>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>Create Manual Task</DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-4 py-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="task-description">Task Description</Label>
-                          <Input
-                            id="task-description"
-                            placeholder="What needs to be done?"
-                            value={newTaskDescription}
-                            onChange={(e) => setNewTaskDescription(e.target.value)}
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="task-agent">Assign to Agent (optional)</Label>
-                          <Select value={newTaskAgent} onValueChange={setNewTaskAgent}>
-                            <SelectTrigger id="task-agent">
-                              <SelectValue placeholder="Select agent" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="">Unassigned</SelectItem>
-                              {agents.map(agent => (
-                                <SelectItem key={agent.agentId} value={agent.agentId}>
-                                  {agent.agentEmoji} {agent.agentName}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                      <DialogFooter>
-                        <Button variant="outline" onClick={() => setNewTaskOpen(false)}>
-                          Cancel
-                        </Button>
-                        <Button onClick={createManualTask}>
-                          Create Task
-                        </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
-                </div>
-              </CardHeader>
-              <CardContent>
+              <CardContent className="pt-6">
                 <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2">
-                    <Filter className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm text-muted-foreground">Filters:</span>
-                  </div>
-                  <Select value={taskFilter} onValueChange={setTaskFilter}>
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder="Source" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Sources</SelectItem>
-                      <SelectItem value="config">Config Files</SelectItem>
-                      <SelectItem value="message">Sessions</SelectItem>
-                      <SelectItem value="manual">Manual</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label htmlFor="agent-filter" className="text-sm font-medium">
+                    Filter by Agent:
+                  </Label>
                   <Select value={agentFilter} onValueChange={setAgentFilter}>
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder="Agent" />
+                    <SelectTrigger id="agent-filter" className="w-[200px]">
+                      <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Agents</SelectItem>
@@ -592,253 +219,241 @@ export default function KanbanPage() {
                       ))}
                     </SelectContent>
                   </Select>
+                  <div className="ml-auto text-sm text-muted-foreground">
+                    {filteredIssues.length} task{filteredIssues.length !== 1 ? 's' : ''}
+                  </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Tasks List */}
-            <Card>
-              <CardContent className="pt-6">
-                {filteredTasks.length === 0 ? (
-                  <div className="text-center py-12">
-                    <p className="text-muted-foreground">No tasks in backlog</p>
-                    <Button variant="outline" className="mt-4" onClick={() => setNewTaskOpen(true)}>
-                      <Plus className="h-4 w-4 mr-2" />
-                      Create First Task
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {filteredTasks.map((task) => (
-                      <motion.div
-                        key={task.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="border rounded-lg p-4 hover:bg-muted/50 transition-colors"
-                      >
-                        <div className="flex items-start justify-between">
-                          <div className="flex-1">
-                            <div className="flex items-center gap-2 mb-2">
-                              <Badge variant={
-                                task.source === "config" ? "default" :
-                                task.source === "message" ? "secondary" : "outline"
-                              }>
-                                {task.source}
-                              </Badge>
-                              <Badge variant={
-                                task.status === "pending" ? "outline" :
-                                task.status === "assigned" ? "default" : "secondary"
-                              }>
-                                {task.status}
-                              </Badge>
-                              {task.assignedAgent && (
-                                <span className="text-sm text-muted-foreground">
-                                  → {agents.find(a => a.agentId === task.assignedAgent)?.agentEmoji}{" "}
-                                  {agents.find(a => a.agentId === task.assignedAgent)?.agentName}
-                                </span>
-                              )}
-                            </div>
-                            <p className="text-sm font-medium mb-1">{task.description}</p>
-                            <p className="text-xs text-muted-foreground">
-                              Created {new Date(task.createdAt).toLocaleString()}
-                            </p>
-                          </div>
-                          <div className="ml-4">
-                            <Select
-                              value={task.assignedAgent || ""}
-                              onValueChange={(value) => assignTask(task.id, value)}
+            {/* Kanban Columns */}
+            {isLoading ? (
+              <div className="grid md:grid-cols-3 gap-6">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-96 rounded-lg border bg-card animate-pulse" />
+                ))}
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-3 gap-6">
+                {columns.map((column) => (
+                  <div key={column.id} className="space-y-3">
+                    {/* Column Header */}
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-lg font-semibold">{column.title}</h3>
+                      <Badge variant="outline">{column.issues.length}</Badge>
+                    </div>
+
+                    {/* Column Cards */}
+                    <div className="space-y-3 min-h-[400px] rounded-lg border-2 border-dashed border-muted p-3">
+                      <AnimatePresence>
+                        {column.issues.map((issue, index) => {
+                          const agent = agents.find(a => a.agentId === issue.assigneeId)
+                          return (
+                            <motion.div
+                              key={issue.id}
+                              layout
+                              initial={{ opacity: 0, y: 20 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, scale: 0.9 }}
+                              transition={{ delay: index * 0.05 }}
                             >
-                              <SelectTrigger className="w-[140px]">
-                                <SelectValue placeholder="Assign" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {agents.map(agent => (
-                                  <SelectItem key={agent.agentId} value={agent.agentId}>
-                                    {agent.agentEmoji} {agent.agentName}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
+                              <Card 
+                                className="cursor-pointer hover:shadow-md transition-shadow"
+                                onClick={() => openIssueModal(issue)}
+                              >
+                                <CardHeader className="pb-3">
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        <span className="text-xs font-mono text-muted-foreground">
+                                          {issue.identifier}
+                                        </span>
+                                        {issue.isNext && (
+                                          <Badge variant="default" className="text-xs">
+                                            NEXT 🔜
+                                          </Badge>
+                                        )}
+                                      </div>
+                                      <CardTitle className="text-sm line-clamp-2">
+                                        {issue.title}
+                                      </CardTitle>
+                                    </div>
+                                  </div>
+                                </CardHeader>
+                                <CardContent className="space-y-2">
+                                  {agent && (
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-lg">{agent.agentEmoji}</span>
+                                      <span className="text-xs font-medium">{agent.agentName}</span>
+                                    </div>
+                                  )}
+                                  <div className={`flex items-center gap-1 text-xs ${getPriorityColor(issue.priority)}`}>
+                                    {getPriorityIcon(issue.priority)}
+                                    <span>{issue.priorityLabel}</span>
+                                  </div>
+                                  {issue.labels.length > 0 && (
+                                    <div className="flex flex-wrap gap-1">
+                                      {issue.labels.slice(0, 2).map(label => (
+                                        <Badge key={label.id} variant="secondary" className="text-xs">
+                                          {label.name}
+                                        </Badge>
+                                      ))}
+                                    </div>
+                                  )}
+                                </CardContent>
+                              </Card>
+                            </motion.div>
+                          )
+                        })}
+                      </AnimatePresence>
+                      {column.issues.length === 0 && (
+                        <div className="text-center py-8 text-muted-foreground text-sm">
+                          No tasks in {column.title.toLowerCase()}
                         </div>
-                      </motion.div>
-                    ))}
+                      )}
+                    </div>
                   </div>
-                )}
-              </CardContent>
-            </Card>
+                ))}
+              </div>
+            )}
           </TabsContent>
 
-          {/* SAP-25: Task History */}
-          <TabsContent value="history" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle>Task History</CardTitle>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      View active and completed tasks
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant={historyTab === "active" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setHistoryTab("active")}
-                    >
-                      Active ({activeTasks.length})
-                    </Button>
-                    <Button
-                      variant={historyTab === "completed" ? "default" : "outline"}
-                      size="sm"
-                      onClick={() => setHistoryTab("completed")}
-                    >
-                      Completed ({completedTasks.length})
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              {historyTab === "completed" && (
-                <CardContent>
-                  <div className="flex items-center gap-4 mb-4">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm text-muted-foreground">Sort by:</span>
-                      <Select value={historySortBy} onValueChange={(v: any) => setHistorySortBy(v)}>
-                        <SelectTrigger className="w-[140px]">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="date">Date</SelectItem>
-                          <SelectItem value="agent">Agent</SelectItem>
-                          <SelectItem value="duration">Duration</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <Select value={historyAgentFilter} onValueChange={setHistoryAgentFilter}>
-                      <SelectTrigger className="w-[180px]">
-                        <SelectValue placeholder="Filter by agent" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Agents</SelectItem>
-                        {agents.map(agent => (
-                          <SelectItem key={agent.agentId} value={agent.agentId}>
-                            {agent.agentEmoji} {agent.agentName}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </CardContent>
-              )}
-            </Card>
-
-            {/* Active Tasks View */}
-            {historyTab === "active" && (
+          {/* SAP-27: Agent Detail (will update next) */}
+          <TabsContent value="agent-detail" className="space-y-4">
+            {!selectedAgent ? (
               <Card>
-                <CardContent className="pt-6">
-                  {activeTasks.length === 0 ? (
-                    <div className="text-center py-12">
-                      <p className="text-muted-foreground">No tasks currently in progress</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {activeTasks.map((task) => {
-                        const agent = agents.find(a => a.agentId === task.assignedAgent)
-                        return (
-                          <motion.div
-                            key={task.id}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            className="border rounded-lg p-4"
-                          >
-                            <div className="flex items-center justify-between">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-2">
-                                  {agent && (
-                                    <span className="text-lg">{agent.agentEmoji}</span>
-                                  )}
-                                  <Badge variant="default">in progress</Badge>
-                                  <Badge variant="outline">{task.source}</Badge>
-                                </div>
-                                <p className="text-sm font-medium mb-1">{task.description}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  Started {new Date(task.createdAt).toLocaleString()}
-                                </p>
-                              </div>
-                              {agent && (
-                                <div className="text-right ml-4">
-                                  <p className="text-sm font-medium">{agent.agentName}</p>
-                                  <p className="text-xs text-muted-foreground">Working...</p>
-                                </div>
-                              )}
-                            </div>
-                          </motion.div>
-                        )
-                      })}
-                    </div>
-                  )}
+                <CardHeader>
+                  <CardTitle>Agent Detail</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-muted-foreground">Click an agent card to view detailed information.</p>
                 </CardContent>
               </Card>
-            )}
-
-            {/* Completed Tasks View */}
-            {historyTab === "completed" && (
+            ) : (
               <Card>
-                <CardContent className="pt-6">
-                  {filteredCompletedTasks.length === 0 ? (
-                    <div className="text-center py-12">
-                      <p className="text-muted-foreground">No completed tasks yet</p>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        Completed tasks will appear here with duration and timestamps
-                      </p>
+                <CardHeader>
+                  <div className="flex items-center gap-4">
+                    <span className="text-5xl">{selectedAgent.agentEmoji}</span>
+                    <div>
+                      <CardTitle className="text-2xl">{selectedAgent.agentName}</CardTitle>
+                      <p className="text-sm text-muted-foreground">Agent ID: {selectedAgent.agentId}</p>
                     </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {/* Table Header */}
-                      <div className="grid grid-cols-12 gap-4 px-4 py-2 text-sm font-medium text-muted-foreground border-b">
-                        <div className="col-span-1">Agent</div>
-                        <div className="col-span-5">Task</div>
-                        <div className="col-span-2">Duration</div>
-                        <div className="col-span-2">Source</div>
-                        <div className="col-span-2">Completed</div>
-                      </div>
-                      
-                      {/* Table Rows */}
-                      {filteredCompletedTasks.map((task) => {
-                        const agent = agents.find(a => a.agentId === task.agent)
-                        return (
-                          <motion.div
-                            key={task.id}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            className="grid grid-cols-12 gap-4 px-4 py-3 text-sm border rounded-lg hover:bg-muted/50 transition-colors"
-                          >
-                            <div className="col-span-1 flex items-center">
-                              <span className="text-2xl">{agent?.agentEmoji || "🤖"}</span>
-                            </div>
-                            <div className="col-span-5">
-                              <p className="font-medium line-clamp-2">{task.description}</p>
-                            </div>
-                            <div className="col-span-2 flex items-center">
-                              <Badge variant="secondary">{formatDuration(task.duration)}</Badge>
-                            </div>
-                            <div className="col-span-2 flex items-center">
-                              <Badge variant="outline">{task.source}</Badge>
-                            </div>
-                            <div className="col-span-2 flex items-center text-xs text-muted-foreground">
-                              {new Date(task.completedAt).toLocaleString()}
-                            </div>
-                          </motion.div>
-                        )
-                      })}
-                    </div>
-                  )}
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-muted-foreground">Agent detail view will be updated in SAP-27</p>
                 </CardContent>
               </Card>
             )}
           </TabsContent>
         </Tabs>
       </main>
+
+      {/* Issue Detail Modal */}
+      <Dialog open={issueModalOpen} onOpenChange={setIssueModalOpen}>
+        <DialogContent className="max-w-2xl">
+          {selectedIssue && (
+            <>
+              <DialogHeader>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-sm font-mono text-muted-foreground">
+                        {selectedIssue.identifier}
+                      </span>
+                      {selectedIssue.isNext && (
+                        <Badge variant="default" className="text-xs">
+                          NEXT 🔜
+                        </Badge>
+                      )}
+                    </div>
+                    <DialogTitle className="text-xl">{selectedIssue.title}</DialogTitle>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    asChild
+                  >
+                    <a href={selectedIssue.url} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink className="h-4 w-4" />
+                    </a>
+                  </Button>
+                </div>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                {/* Description */}
+                {selectedIssue.description && (
+                  <div>
+                    <Label className="text-sm font-medium">Description</Label>
+                    <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap">
+                      {selectedIssue.description}
+                    </p>
+                  </div>
+                )}
+
+                {/* Meta */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label className="text-sm font-medium">Status</Label>
+                    <p className="text-sm mt-1">{selectedIssue.state}</p>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-medium">Priority</Label>
+                    <div className={`flex items-center gap-1 text-sm mt-1 ${getPriorityColor(selectedIssue.priority)}`}>
+                      {getPriorityIcon(selectedIssue.priority)}
+                      <span>{selectedIssue.priorityLabel}</span>
+                    </div>
+                  </div>
+                  {selectedIssue.assignee && (
+                    <div>
+                      <Label className="text-sm font-medium">Assigned To</Label>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-lg">
+                          {agents.find(a => a.agentId === selectedIssue.assigneeId)?.agentEmoji || "👤"}
+                        </span>
+                        <span className="text-sm">{selectedIssue.assignee}</span>
+                      </div>
+                    </div>
+                  )}
+                  <div>
+                    <Label className="text-sm font-medium">Created</Label>
+                    <p className="text-sm mt-1">
+                      {new Date(selectedIssue.createdAt).toLocaleDateString()}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Labels */}
+                {selectedIssue.labels.length > 0 && (
+                  <div>
+                    <Label className="text-sm font-medium">Labels</Label>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {selectedIssue.labels.map(label => (
+                        <Badge key={label.id} variant="secondary">
+                          {label.name}
+                        </Badge>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIssueModalOpen(false)}>
+                  Close
+                </Button>
+                <Button asChild>
+                  <a href={selectedIssue.url} target="_blank" rel="noopener noreferrer">
+                    Open in Linear
+                    <ArrowRight className="h-4 w-4 ml-2" />
+                  </a>
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   )
 }
