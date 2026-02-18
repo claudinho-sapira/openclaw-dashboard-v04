@@ -91,19 +91,19 @@ export default function KanbanPage() {
         const agentsRes = await fetch("/api/agents")
         const agentsData = await agentsRes.json()
         
-        // Transform to AgentStatus format
-        const agentStatuses: AgentStatus[] = agentsData.agents?.map((agent: any) => {
+        // Transform to AgentStatus format with safe access
+        const agentStatuses: AgentStatus[] = (agentsData.agents || []).map((agent: any) => {
           const activity = data.activities?.find((a: any) => a.agentId === agent.id)
           return {
-            agentId: agent.id,
-            agentName: agent.identity.name,
-            agentEmoji: agent.identity.emoji,
+            agentId: agent.id || "unknown",
+            agentName: agent.identity?.name || agent.id || "Unknown",
+            agentEmoji: agent.identity?.emoji || "🤖",
             status: activity?.status || "idle",
             sessionCount: agent.sessions || 0,
-            lastActivity: agent.lastActive,
+            lastActivity: agent.lastActive || new Date().toISOString(),
             sessions: [], // Will be populated in Agent Detail view
           }
-        }) || []
+        })
 
         setAgents(agentStatuses)
 
@@ -132,11 +132,11 @@ export default function KanbanPage() {
   }, [])
 
   const selectAgent = async (agent: AgentStatus) => {
-    setSelectedAgent(agent)
-    setActiveTab("agent-detail")
-    setLoadingSessions(true)
-
     try {
+      setSelectedAgent(agent)
+      setActiveTab("agent-detail")
+      setLoadingSessions(true)
+
       const res = await fetch(`/api/agents/${agent.agentId}/sessions`)
       if (res.ok) {
         const data = await res.json()
@@ -144,6 +144,7 @@ export default function KanbanPage() {
       }
     } catch (error) {
       console.error("Failed to fetch agent sessions:", error)
+      setAgentSessions([])
     } finally {
       setLoadingSessions(false)
     }
@@ -467,7 +468,7 @@ export default function KanbanPage() {
                                   {session.displayName || session.key}
                                 </p>
                                 <p className="text-xs text-muted-foreground mt-1">
-                                  Model: {session.model} • Tokens: {session.totalTokens.toLocaleString()}
+                                  Model: {session.model} • Tokens: {session.totalTokens?.toLocaleString() || 0}
                                 </p>
                               </div>
                               <div className="text-right ml-4">
@@ -813,7 +814,7 @@ export default function KanbanPage() {
                             className="grid grid-cols-12 gap-4 px-4 py-3 text-sm border rounded-lg hover:bg-muted/50 transition-colors"
                           >
                             <div className="col-span-1 flex items-center">
-                              <span className="text-2xl">{agent?.agentEmoji}</span>
+                              <span className="text-2xl">{agent?.agentEmoji || "🤖"}</span>
                             </div>
                             <div className="col-span-5">
                               <p className="font-medium line-clamp-2">{task.description}</p>
