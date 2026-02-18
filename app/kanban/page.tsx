@@ -226,11 +226,11 @@ export default function KanbanPage() {
 
   const getPriorityColor = (priority: number) => {
     switch (priority) {
-      case 0: return "text-red-600 dark:text-red-400"
-      case 1: return "text-orange-600 dark:text-orange-400"
-      case 2: return "text-yellow-600 dark:text-yellow-400"
-      case 3: return "text-blue-600 dark:text-blue-400"
-      default: return "text-gray-600 dark:text-gray-400"
+      case 0: return "border-red-500 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400"
+      case 1: return "border-orange-500 bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400"
+      case 2: return "border-yellow-500 bg-yellow-50 dark:bg-yellow-950/30 text-yellow-700 dark:text-yellow-600"
+      case 3: return "border-blue-500 bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400"
+      default: return "border-gray-400 bg-gray-50 dark:bg-gray-950/30 text-gray-700 dark:text-gray-400"
     }
   }
 
@@ -360,10 +360,23 @@ export default function KanbanPage() {
                                 <CardHeader className="pb-3">
                                   <div className="flex items-start justify-between gap-2">
                                     <div className="flex-1">
-                                      <div className="flex items-center gap-2 mb-1">
+                                      <div className="flex items-center gap-2 mb-1 flex-wrap">
                                         <span className="text-xs font-mono text-muted-foreground">
                                           {issue.identifier}
                                         </span>
+                                        {/* Priority Badge - MORE VISIBLE */}
+                                        <Badge 
+                                          variant={issue.priority === 0 ? "destructive" : "outline"}
+                                          className={`text-xs ${getPriorityColor(issue.priority)}`}
+                                        >
+                                          {issue.priority === 0 && "🔴"}
+                                          {issue.priority === 1 && "🟠"}
+                                          {issue.priority === 2 && "🟡"}
+                                          {issue.priority === 3 && "🔵"}
+                                          {issue.priority === 4 && "⚪"}
+                                          {" "}
+                                          {issue.priorityLabel}
+                                        </Badge>
                                         {issue.isNext && (
                                           <Badge variant="default" className="text-xs">
                                             NEXT 🔜
@@ -377,16 +390,17 @@ export default function KanbanPage() {
                                   </div>
                                 </CardHeader>
                                 <CardContent className="space-y-2">
-                                  {agent && (
-                                    <div className="flex items-center gap-2">
+                                  {/* Assignee - MORE VISIBLE */}
+                                  {agent ? (
+                                    <div className="flex items-center gap-2 bg-muted/50 rounded-md px-2 py-1">
                                       <span className="text-lg">{agent.agentEmoji}</span>
-                                      <span className="text-xs font-medium">{agent.agentName}</span>
+                                      <span className="text-xs font-semibold">{agent.agentName}</span>
+                                    </div>
+                                  ) : (
+                                    <div className="flex items-center gap-2 bg-muted/30 rounded-md px-2 py-1">
+                                      <span className="text-xs text-muted-foreground">Unassigned</span>
                                     </div>
                                   )}
-                                  <div className={`flex items-center gap-1 text-xs ${getPriorityColor(issue.priority)}`}>
-                                    {getPriorityIcon(issue.priority)}
-                                    <span>{issue.priorityLabel}</span>
-                                  </div>
                                   {issue.labels.length > 0 && (
                                     <div className="flex flex-wrap gap-1">
                                       {issue.labels.slice(0, 2).map(label => (
