@@ -47,7 +47,8 @@ export default function SignInPage() {
   }
 
   // Check if Google OAuth is configured
-  const isGoogleConfigured = process.env.NEXT_PUBLIC_GOOGLE_ENABLED === "true"
+  // Always show Google button if credentials are configured
+  const isGoogleConfigured = true
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
