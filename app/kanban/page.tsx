@@ -43,6 +43,9 @@ export default function KanbanPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const [activeTab, setActiveTab] = useState("dashboard")
+  const [selectedAgent, setSelectedAgent] = useState<AgentStatus | null>(null)
+  const [agentSessions, setAgentSessions] = useState<AgentSession[]>([])
+  const [loadingSessions, setLoadingSessions] = useState(false)
 
   const fetchAgentData = async () => {
     try {
@@ -94,6 +97,24 @@ export default function KanbanPage() {
     const interval = setInterval(fetchAgentData, POLLING_INTERVAL)
     return () => clearInterval(interval)
   }, [])
+
+  const selectAgent = async (agent: AgentStatus) => {
+    setSelectedAgent(agent)
+    setActiveTab("agent-detail")
+    setLoadingSessions(true)
+
+    try {
+      const res = await fetch(`/api/agents/${agent.agentId}/sessions`)
+      if (res.ok) {
+        const data = await res.json()
+        setAgentSessions(data.sessions || [])
+      }
+    } catch (error) {
+      console.error("Failed to fetch agent sessions:", error)
+    } finally {
+      setLoadingSessions(false)
+    }
+  }
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -213,7 +234,7 @@ export default function KanbanPage() {
                       transition={{ delay: index * 0.1 }}
                     >
                       <Card className="hover:shadow-lg transition-shadow cursor-pointer"
-                            onClick={() => setActiveTab("agent-detail")}>
+                            onClick={() => selectAgent(agent)}>
                         <CardHeader className="pb-3">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-3">
@@ -258,16 +279,128 @@ export default function KanbanPage() {
             </div>
           </TabsContent>
 
-          {/* SAP-23: Agent Detail (placeholder) */}
-          <TabsContent value="agent-detail">
-            <Card>
-              <CardHeader>
-                <CardTitle>Agent Detail</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground">Select an agent to view detailed sessions and assign tasks.</p>
-              </CardContent>
-            </Card>
+          {/* SAP-23: Agent Detail */}
+          <TabsContent value="agent-detail" className="space-y-4">
+            {!selectedAgent ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Agent Detail</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-muted-foreground">Select an agent from the Dashboard to view detailed sessions.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <>
+                {/* Agent Header */}
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <span className="text-5xl">{selectedAgent.agentEmoji}</span>
+                        <div>
+                          <CardTitle className="text-2xl">{selectedAgent.agentName}</CardTitle>
+                          <p className="text-sm text-muted-foreground">Agent ID: {selectedAgent.agentId}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <Badge variant={getStatusBadgeVariant(selectedAgent.status)} className="text-sm">
+                          {selectedAgent.status}
+                        </Badge>
+                        <Button size="sm">
+                          Assign Task
+                        </Button>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="grid md:grid-cols-3 gap-4">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Active Sessions</p>
+                      <p className="text-2xl font-bold">{selectedAgent.sessionCount}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Last Activity</p>
+                      <p className="text-lg font-medium">
+                        {new Date(selectedAgent.lastActivity).toLocaleString()}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground">Status</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <div className={`h-3 w-3 rounded-full ${getStatusColor(selectedAgent.status)}`} />
+                        <p className="text-lg font-medium capitalize">{selectedAgent.status}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Sessions List */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Active Sessions</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {loadingSessions ? (
+                      <div className="space-y-3">
+                        {[1, 2, 3].map((i) => (
+                          <div key={i} className="h-20 rounded border bg-muted animate-pulse" />
+                        ))}
+                      </div>
+                    ) : agentSessions.length === 0 ? (
+                      <p className="text-muted-foreground text-center py-8">No active sessions</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {agentSessions.map((session) => (
+                          <motion.div
+                            key={session.key}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className="border rounded-lg p-4 hover:bg-muted/50 transition-colors"
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <Badge variant="outline" className="text-xs">
+                                    {session.kind}
+                                  </Badge>
+                                  <Badge variant="secondary" className="text-xs">
+                                    {session.channel}
+                                  </Badge>
+                                </div>
+                                <p className="text-sm font-medium line-clamp-2">
+                                  {session.displayName || session.key}
+                                </p>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  Model: {session.model} • Tokens: {session.totalTokens.toLocaleString()}
+                                </p>
+                              </div>
+                              <div className="text-right ml-4">
+                                <p className="text-xs text-muted-foreground">Last active</p>
+                                <p className="text-sm font-medium">
+                                  {new Date(session.updatedAt).toLocaleTimeString()}
+                                </p>
+                              </div>
+                            </div>
+                          </motion.div>
+                        ))}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Message History (placeholder for now) */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Recent Messages</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-muted-foreground text-center py-4">
+                      Message history will appear here
+                    </p>
+                  </CardContent>
+                </Card>
+              </>
+            )}
           </TabsContent>
 
           {/* SAP-24: Backlog (placeholder) */}
