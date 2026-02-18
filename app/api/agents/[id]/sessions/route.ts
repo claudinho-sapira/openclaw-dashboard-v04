@@ -20,23 +20,30 @@ export async function GET(
       messageLimit: 5,
     });
 
+    // Response structure: result.details.sessions[]
+    const sessions = result?.details?.sessions || [];
+
     // Filter sessions for this agent
-    const agentSessions = (result?.sessions || []).filter((s: any) => {
+    const agentSessions = sessions.filter((s: any) => {
       const sessionKey = s.key || "";
       return sessionKey.includes(`:${id}:`);
     });
 
     // Transform to our format
-    const sessions = agentSessions.map((s: any) => ({
+    const transformedSessions = agentSessions.map((s: any) => ({
       key: s.key,
       kind: s.kind || "unknown",
-      messages: s.messages || [],
-      messageCount: s.messageCount || 0,
-      createdAt: s.createdAt || new Date().toISOString(),
-      lastActive: s.lastActive || s.createdAt || new Date().toISOString(),
+      channel: s.channel || "unknown",
+      displayName: s.displayName || s.key,
+      messages: [], // Not included in sessions_list
+      messageCount: 0,
+      model: s.model || "unknown",
+      tokens: s.totalTokens || 0,
+      createdAt: new Date(s.updatedAt || Date.now()).toISOString(),
+      lastActive: new Date(s.updatedAt || Date.now()).toISOString(),
     }));
 
-    return NextResponse.json({ sessions });
+    return NextResponse.json({ sessions: transformedSessions });
   } catch (error) {
     console.error("Failed to fetch sessions:", error);
     return NextResponse.json(

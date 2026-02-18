@@ -15,41 +15,46 @@ export async function GET() {
     });
 
     // Extract unique agents from sessions
+    // Response structure: result.details.sessions[]
+    const sessions = result?.details?.sessions || [];
     const agentMap = new Map();
     
-    if (result?.sessions) {
-      result.sessions.forEach((s: any) => {
-        const key = s.key || "";
-        // Parse agent from session key: agent:pm:main -> pm
-        const match = key.match(/^agent:([^:]+):/);
-        if (match) {
-          const agentId = match[1];
-          if (!agentMap.has(agentId)) {
-            agentMap.set(agentId, {
-              id: agentId,
-              identity: {
-                name: agentId === "pm" ? "Luna" : agentId === "builder" ? "Bolt" : agentId === "qa" ? "Iris" : agentId,
-                role: agentId === "pm" ? "Project Manager" : agentId === "builder" ? "Developer" : agentId === "qa" ? "QA Engineer" : "Agent",
-                emoji: agentId === "pm" ? "🎯" : agentId === "builder" ? "🔨" : agentId === "qa" ? "🔍" : "🤖",
-                theme: "Default",
-              },
-              model: s.model || "anthropic/claude-sonnet-4-5",
-              tokensUsed: s.tokens?.total || 0,
-              tokensLimit: 200000,
-              lastActive: s.lastActive || new Date().toISOString(),
-              sessions: 1,
-              status: "running",
-            });
-          } else {
-            const agent = agentMap.get(agentId);
-            agent.sessions += 1;
-            if (s.lastActive > agent.lastActive) {
-              agent.lastActive = s.lastActive;
-            }
-          }
-        }
-      });
-    }
+    sessions.forEach((s: any) => {
+      const key = s.key || "";
+      // Parse agent from session key: agent:pm:main -> pm
+      // Only match agent:*:main sessions (primary agent sessions)
+      const match = key.match(/^agent:([^:]+):main$/);
+      if (match) {
+        const agentId = match[1];
+        const identityMap: Record<string, { name: string; role: string; emoji: string }> = {
+          pm: { name: "Luna", role: "Project Manager", emoji: "🎯" },
+          builder: { name: "Bolt", role: "Developer", emoji: "🔨" },
+          qa: { name: "Iris", role: "QA Engineer", emoji: "🔍" },
+        };
+
+        const identity = identityMap[agentId] || {
+          name: agentId.charAt(0).toUpperCase() + agentId.slice(1),
+          role: "Agent",
+          emoji: "🤖",
+        };
+
+        agentMap.set(agentId, {
+          id: agentId,
+          identity: {
+            name: identity.name,
+            role: identity.role,
+            emoji: identity.emoji,
+            theme: "Default",
+          },
+          model: s.model || "anthropic/claude-sonnet-4-5",
+          tokensUsed: s.totalTokens || 0,
+          tokensLimit: s.contextTokens || 200000,
+          lastActive: new Date(s.updatedAt || Date.now()).toISOString(),
+          sessions: 1,
+          status: "running",
+        });
+      }
+    });
 
     const agents = Array.from(agentMap.values());
 
