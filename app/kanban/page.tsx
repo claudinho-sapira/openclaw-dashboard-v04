@@ -87,10 +87,19 @@ export default function KanbanPage() {
   const fetchKanbanData = async () => {
     try {
       // Fetch Linear issues
+      console.log("[Kanban] Fetching Linear issues...")
       const issuesRes = await fetch("/api/linear/issues")
+      console.log("[Kanban] Linear API response status:", issuesRes.status)
+      
       if (issuesRes.ok) {
         const data = await issuesRes.json()
+        console.log("[Kanban] Linear data received:", data)
+        console.log("[Kanban] Issues count:", data.issues?.length || 0)
         setIssues(data.issues || [])
+      } else {
+        console.error("[Kanban] Linear API error:", issuesRes.status, issuesRes.statusText)
+        const errorData = await issuesRes.json().catch(() => ({}))
+        console.error("[Kanban] Error details:", errorData)
       }
 
       // Fetch agents for filter

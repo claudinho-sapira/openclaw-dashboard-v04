@@ -94,11 +94,16 @@ export async function GET(request: NextRequest) {
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
 
+    console.log(`[Linear API] Returning ${sortedIssues.length} issues`);
+    console.log(`[Linear API] First 3 issues:`, sortedIssues.slice(0, 3).map(i => ({ id: i.identifier, title: i.title, column: i.column })));
+
     return NextResponse.json({ issues: sortedIssues });
   } catch (error) {
     console.error("Failed to fetch Linear issues:", error);
+    console.error("Error details:", error instanceof Error ? error.message : String(error));
+    console.error("Error stack:", error instanceof Error ? error.stack : "");
     return NextResponse.json(
-      { error: "Failed to fetch issues from Linear" },
+      { error: "Failed to fetch issues from Linear", details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }
