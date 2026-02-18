@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { gatewayInvokeTool, gatewayCall } from "@/lib/gateway";
+import { gatewayInvokeTool } from "@/lib/gateway";
 
 export async function GET() {
   try {
@@ -9,25 +9,49 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Get list of agents from gateway
-    const result = await gatewayCall("agents.list");
+    // Get sessions list to find all agents
+    const result = await gatewayInvokeTool("sessions_list", {
+      limit: 100,
+    });
+
+    // Extract unique agents from sessions
+    const agentMap = new Map();
     
-    // Transform to our format
-    const agents = (result.agents || []).map((agent: any) => ({
-      id: agent.id,
-      identity: {
-        name: agent.name || agent.id,
-        role: agent.role || "Agent",
-        emoji: agent.emoji || "🤖",
-        theme: agent.theme,
-      },
-      model: agent.model || "unknown",
-      tokensUsed: agent.usage?.tokens || 0,
-      tokensLimit: agent.limits?.tokens || 100000,
-      lastActive: agent.lastActive || new Date().toISOString(),
-      sessions: agent.sessions || 0,
-      status: agent.status || "running",
-    }));
+    if (result?.sessions) {
+      result.sessions.forEach((s: any) => {
+        const key = s.key || "";
+        // Parse agent from session key: agent:pm:main -> pm
+        const match = key.match(/^agent:([^:]+):/);
+        if (match) {
+          const agentId = match[1];
+          if (!agentMap.has(agentId)) {
+            agentMap.set(agentId, {
+              id: agentId,
+              identity: {
+                name: agentId === "pm" ? "Luna" : agentId === "builder" ? "Bolt" : agentId === "qa" ? "Iris" : agentId,
+                role: agentId === "pm" ? "Project Manager" : agentId === "builder" ? "Developer" : agentId === "qa" ? "QA Engineer" : "Agent",
+                emoji: agentId === "pm" ? "🎯" : agentId === "builder" ? "🔨" : agentId === "qa" ? "🔍" : "🤖",
+                theme: "Default",
+              },
+              model: s.model || "anthropic/claude-sonnet-4-5",
+              tokensUsed: s.tokens?.total || 0,
+              tokensLimit: 200000,
+              lastActive: s.lastActive || new Date().toISOString(),
+              sessions: 1,
+              status: "running",
+            });
+          } else {
+            const agent = agentMap.get(agentId);
+            agent.sessions += 1;
+            if (s.lastActive > agent.lastActive) {
+              agent.lastActive = s.lastActive;
+            }
+          }
+        }
+      });
+    }
+
+    const agents = Array.from(agentMap.values());
 
     return NextResponse.json({ agents });
   } catch (error) {

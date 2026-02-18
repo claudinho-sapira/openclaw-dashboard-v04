@@ -21,7 +21,7 @@ export async function GET(
     });
 
     // Filter sessions for this agent
-    const agentSessions = (result.sessions || []).filter((s: any) => {
+    const agentSessions = (result?.sessions || []).filter((s: any) => {
       const sessionKey = s.key || "";
       return sessionKey.includes(`:${id}:`);
     });

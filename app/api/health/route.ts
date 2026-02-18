@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { gatewayCall } from "@/lib/gateway";
+import { gatewayInvokeTool } from "@/lib/gateway";
 
 export async function GET() {
   try {
@@ -9,20 +9,27 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Get gateway health
-    const healthData = await gatewayCall("health");
+    // Get session status to check gateway health
+    const result = await gatewayInvokeTool("session_status");
     
-    // Transform to our format
+    // Parse version from status text
+    let version = "unknown";
+    let uptime = 0;
+    
+    if (result?.details?.statusText) {
+      const versionMatch = result.details.statusText.match(/OpenClaw ([0-9.]+)/);
+      if (versionMatch) {
+        version = versionMatch[1];
+      }
+    }
+
     const health = {
-      status: healthData?.ok ? "healthy" : "degraded",
+      status: result?.ok ? "healthy" : "degraded",
       gateway: {
-        version: healthData?.version || "unknown",
-        uptime: healthData?.uptime || 0,
+        version,
+        uptime,
       },
-      channels: (healthData?.channels || []).map((ch: any) => ({
-        name: ch.name || "unknown",
-        status: ch.connected ? "connected" : "disconnected",
-      })),
+      channels: [], // TODO: Add channel info if available
     };
 
     return NextResponse.json(health);
