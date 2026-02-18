@@ -240,9 +240,30 @@ export default function KanbanPage() {
     return <Clock className="h-3 w-3" />
   }
 
+  // Map agentId to possible label names
+  const agentLabelMap: Record<string, string[]> = {
+    "builder": ["bolt", "builder"],
+    "pm": ["luna", "pm"],
+    "qa": ["iris", "qa"],
+  }
+
+  // Filter issues by agent (checks both assigneeId AND labels)
   const filteredIssues = agentFilter === "all" 
     ? issues 
-    : issues.filter(issue => issue.assigneeId === agentFilter)
+    : issues.filter(issue => {
+        // Check assigneeId first (fallback)
+        if (issue.assigneeId === agentFilter) return true
+        
+        // Check labels for agent name matches
+        const labelNames = agentLabelMap[agentFilter] || []
+        const hasMatchingLabel = issue.labels.some(label => 
+          labelNames.some(agentLabel => 
+            label.name.toLowerCase().includes(agentLabel.toLowerCase())
+          )
+        )
+        
+        return hasMatchingLabel
+      })
 
   const columns = [
     { id: "backlog", title: "Backlog", issues: filteredIssues.filter(i => i.column === "backlog") },

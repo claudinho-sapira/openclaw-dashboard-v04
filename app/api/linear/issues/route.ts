@@ -54,10 +54,35 @@ const getCachedLinearIssues = unstable_cache(
           "Bolt": "builder", 
           "Iris": "qa",
         };
-        const agentId = assignee?.displayName ? agentMap[assignee.displayName] : null;
+        
+        // First try to get from assignee
+        let agentId = assignee?.displayName ? agentMap[assignee.displayName] : null;
+        
+        // Fallback: extract from labels if no assignee (e.g., label "bolt" → "builder")
+        if (!agentId) {
+          const labelNames = labels.nodes.map(l => l.name.toLowerCase());
+          if (labelNames.some(l => l.includes("bolt") || l.includes("builder"))) {
+            agentId = "builder";
+          } else if (labelNames.some(l => l.includes("luna") || l.includes("pm"))) {
+            agentId = "pm";
+          } else if (labelNames.some(l => l.includes("iris") || l.includes("qa"))) {
+            agentId = "qa";
+          }
+        }
 
         // Check if this is the next task (first in backlog with priority 1 or urgent)
         const isNext = column === "backlog" && (issue.priority === 1 || issue.priority === 0);
+
+        // Get assignee display name (from assignee or derive from agentId)
+        let assigneeName = assignee?.displayName || null;
+        if (!assigneeName && agentId) {
+          const agentNameMap: Record<string, string> = {
+            "builder": "Bolt",
+            "pm": "Luna",
+            "qa": "Iris",
+          };
+          assigneeName = agentNameMap[agentId] || null;
+        }
 
         return {
           id: issue.id,
@@ -69,7 +94,7 @@ const getCachedLinearIssues = unstable_cache(
           column,
           priority: issue.priority || 4, // 0=urgent, 1=high, 2=medium, 3=low, 4=no priority
           priorityLabel: issue.priorityLabel || "No priority",
-          assignee: assignee?.displayName || null,
+          assignee: assigneeName,
           assigneeId: agentId,
           createdAt: issue.createdAt.toISOString(),
           updatedAt: issue.updatedAt.toISOString(),
