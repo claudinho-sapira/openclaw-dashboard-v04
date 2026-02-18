@@ -542,6 +542,359 @@ export default function KanbanPage() {
             )}
           </TabsContent>
 
+          {/* SAP-28: Backlog Tab */}
+          <TabsContent value="backlog" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Backlog</CardTitle>
+                <CardDescription>All pending tasks from Linear, HEARTBEAT.md, and manual entries</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-4 mb-4">
+                  <Label htmlFor="backlog-filter" className="text-sm font-medium">
+                    Source:
+                  </Label>
+                  <Select value={backlogFilter} onValueChange={(value: any) => setBacklogFilter(value)}>
+                    <SelectTrigger id="backlog-filter" className="w-[200px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Sources</SelectItem>
+                      <SelectItem value="linear">Linear Only</SelectItem>
+                      <SelectItem value="config">HEARTBEAT.md</SelectItem>
+                      <SelectItem value="manual">Manual Tasks</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {isLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {/* Linear Backlog Issues */}
+                    {(backlogFilter === "all" || backlogFilter === "linear") && (
+                      <>
+                        {issues.filter(i => i.column === "backlog").map((issue) => {
+                          const assignedAgentId = getIssueAgent(issue.id)
+                          const agent = agents.find(a => a.agentId === assignedAgentId)
+                          return (
+                            <Card key={issue.id} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => openIssueModal(issue)}>
+                              <CardHeader className="pb-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <Badge variant="secondary" className="text-xs">
+                                        Linear
+                                      </Badge>
+                                      <span className="text-xs font-mono text-muted-foreground">
+                                        {issue.identifier}
+                                      </span>
+                                      <Badge 
+                                        variant={issue.priority === 0 ? "destructive" : "outline"}
+                                        className={`text-xs ${getPriorityColor(issue.priority)}`}
+                                      >
+                                        {issue.priority === 0 && "🔴"}
+                                        {issue.priority === 1 && "🟠"}
+                                        {issue.priority === 2 && "🟡"}
+                                        {issue.priority === 3 && "🔵"}
+                                        {issue.priority === 4 && "⚪"}
+                                        {" "}
+                                        {issue.priorityLabel}
+                                      </Badge>
+                                    </div>
+                                    <CardTitle className="text-sm">{issue.title}</CardTitle>
+                                  </div>
+                                  {agent && (
+                                    <div className="flex items-center gap-1 text-sm">
+                                      <span>{agent.agentEmoji}</span>
+                                      <span className="text-xs">{agent.agentName}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </CardHeader>
+                            </Card>
+                          )
+                        })}
+                      </>
+                    )}
+
+                    {/* HEARTBEAT.md Tasks */}
+                    {(backlogFilter === "all" || backlogFilter === "config") && (
+                      <>
+                        {heartbeatTasks.map((task) => {
+                          const agent = agents.find(a => a.agentId === task.agent)
+                          return (
+                            <Card key={task.id}>
+                              <CardHeader className="pb-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <Badge variant="secondary" className="text-xs">
+                                        HEARTBEAT
+                                      </Badge>
+                                    </div>
+                                    <CardTitle className="text-sm">{task.description}</CardTitle>
+                                  </div>
+                                  {agent && (
+                                    <div className="flex items-center gap-1 text-sm">
+                                      <span>{agent.agentEmoji}</span>
+                                      <span className="text-xs">{agent.agentName}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </CardHeader>
+                            </Card>
+                          )
+                        })}
+                      </>
+                    )}
+
+                    {/* Manual Tasks */}
+                    {(backlogFilter === "all" || backlogFilter === "manual") && (
+                      <>
+                        {manualTasks.map((task) => {
+                          const agent = agents.find(a => a.agentId === task.assignedAgent || undefined)
+                          return (
+                            <Card key={task.id}>
+                              <CardHeader className="pb-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <Badge variant="secondary" className="text-xs">
+                                        Manual
+                                      </Badge>
+                                    </div>
+                                    <CardTitle className="text-sm">{task.description}</CardTitle>
+                                  </div>
+                                  {agent && (
+                                    <div className="flex items-center gap-1 text-sm">
+                                      <span>{agent.agentEmoji}</span>
+                                      <span className="text-xs">{agent.agentName}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              </CardHeader>
+                            </Card>
+                          )
+                        })}
+                      </>
+                    )}
+
+                    {/* Empty State */}
+                    {issues.filter(i => i.column === "backlog").length === 0 && 
+                     heartbeatTasks.length === 0 && 
+                     manualTasks.length === 0 && (
+                      <div className="text-center py-12 text-muted-foreground">
+                        <CheckCircle2 className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                        <p className="text-lg font-medium">No backlog items</p>
+                        <p className="text-sm mt-1">All tasks are either in progress or completed</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Create Manual Task Button */}
+            <Dialog open={newTaskOpen} onOpenChange={setNewTaskOpen}>
+              <DialogTrigger asChild>
+                <Button className="w-full">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Create Manual Task
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Create Manual Task</DialogTitle>
+                  <DialogDescription>
+                    Add a task that's not tracked in Linear
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div>
+                    <Label htmlFor="task-desc">Task Description</Label>
+                    <Input
+                      id="task-desc"
+                      value={newTaskDescription}
+                      onChange={(e) => setNewTaskDescription(e.target.value)}
+                      placeholder="What needs to be done?"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="task-agent">Assign to Agent (optional)</Label>
+                    <Select value={newTaskAgent} onValueChange={setNewTaskAgent}>
+                      <SelectTrigger id="task-agent">
+                        <SelectValue placeholder="Select agent..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">Unassigned</SelectItem>
+                        {agents.map(agent => (
+                          <SelectItem key={agent.agentId} value={agent.agentId}>
+                            {agent.agentEmoji} {agent.agentName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setNewTaskOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={createManualTask}>
+                    Create Task
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </TabsContent>
+
+          {/* SAP-29: Task History Tab */}
+          <TabsContent value="history" className="space-y-4">
+            <Card>
+              <CardHeader>
+                <CardTitle>Task History</CardTitle>
+                <CardDescription>Completed tasks from Linear</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="history-sort" className="text-sm font-medium">
+                      Sort by:
+                    </Label>
+                    <Select value={historySortBy} onValueChange={(value: any) => setHistorySortBy(value)}>
+                      <SelectTrigger id="history-sort" className="w-[150px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="date">Date</SelectItem>
+                        <SelectItem value="agent">Agent</SelectItem>
+                        <SelectItem value="duration">Duration</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label htmlFor="history-agent-filter" className="text-sm font-medium">
+                      Agent:
+                    </Label>
+                    <Select value={historyAgentFilter} onValueChange={setHistoryAgentFilter}>
+                      <SelectTrigger id="history-agent-filter" className="w-[150px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Agents</SelectItem>
+                        {agents.map(agent => (
+                          <SelectItem key={agent.agentId} value={agent.agentId}>
+                            {agent.agentEmoji} {agent.agentName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {isLoading ? (
+                  <div className="flex items-center justify-center py-12">
+                    <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+                  </div>
+                ) : (
+                  <>
+                    {(() => {
+                      let completedIssues = issues.filter(i => i.column === "done")
+                      
+                      // Filter by agent
+                      if (historyAgentFilter !== "all") {
+                        completedIssues = completedIssues.filter(issue => 
+                          getIssueAgent(issue.id) === historyAgentFilter
+                        )
+                      }
+
+                      // Sort
+                      if (historySortBy === "date") {
+                        completedIssues.sort((a, b) => 
+                          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+                        )
+                      } else if (historySortBy === "agent") {
+                        completedIssues.sort((a, b) => {
+                          const agentA = getIssueAgent(a.id) || ""
+                          const agentB = getIssueAgent(b.id) || ""
+                          return agentA.localeCompare(agentB)
+                        })
+                      } else if (historySortBy === "duration") {
+                        completedIssues.sort((a, b) => {
+                          const durationA = new Date(a.updatedAt).getTime() - new Date(a.createdAt).getTime()
+                          const durationB = new Date(b.updatedAt).getTime() - new Date(b.createdAt).getTime()
+                          return durationB - durationA
+                        })
+                      }
+
+                      if (completedIssues.length === 0) {
+                        return (
+                          <div className="text-center py-12 text-muted-foreground">
+                            <Clock className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                            <p className="text-lg font-medium">No completed tasks yet</p>
+                            <p className="text-sm mt-1">Completed tasks will appear here</p>
+                          </div>
+                        )
+                      }
+
+                      return (
+                        <div className="space-y-3">
+                          {completedIssues.map((issue) => {
+                            const assignedAgentId = getIssueAgent(issue.id)
+                            const agent = agents.find(a => a.agentId === assignedAgentId)
+                            const duration = new Date(issue.updatedAt).getTime() - new Date(issue.createdAt).getTime()
+                            const durationDays = Math.floor(duration / (1000 * 60 * 60 * 24))
+                            const durationHours = Math.floor((duration % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60))
+                            const durationStr = durationDays > 0 ? `${durationDays}d ${durationHours}h` : `${durationHours}h`
+
+                            return (
+                              <Card key={issue.id} className="hover:shadow-md transition-shadow cursor-pointer" onClick={() => openIssueModal(issue)}>
+                                <CardHeader className="pb-3">
+                                  <div className="flex items-center justify-between gap-4">
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2 mb-1">
+                                        <span className="text-xs font-mono text-muted-foreground">
+                                          {issue.identifier}
+                                        </span>
+                                        <Badge variant="outline" className="text-xs">
+                                          <CheckCircle2 className="h-3 w-3 mr-1" />
+                                          Done
+                                        </Badge>
+                                      </div>
+                                      <CardTitle className="text-sm">{issue.title}</CardTitle>
+                                    </div>
+                                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                                      {agent && (
+                                        <div className="flex items-center gap-1">
+                                          <span>{agent.agentEmoji}</span>
+                                          <span className="text-xs">{agent.agentName}</span>
+                                        </div>
+                                      )}
+                                      <div className="flex items-center gap-1">
+                                        <Clock className="h-3 w-3" />
+                                        <span className="text-xs">{durationStr}</span>
+                                      </div>
+                                      <span className="text-xs">
+                                        {new Date(issue.updatedAt).toLocaleDateString()}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </CardHeader>
+                              </Card>
+                            )
+                          })}
+                        </div>
+                      )
+                    })()}
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
           {/* SAP-27: Agent Detail Clean */}
           <TabsContent value="agent-detail" className="space-y-4">
             {!selectedAgent ? (
