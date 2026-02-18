@@ -21,3 +21,11 @@ model Task {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+
+model IssueAssignment {
+  id         String   @id @default(uuid())
+  issueId    String   @unique // Linear issue ID (e.g., "e2b77c2b-...")
+  agentName  String   // "pm", "builder", "qa"
+  assignedAt DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
