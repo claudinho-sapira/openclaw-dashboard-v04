@@ -48,6 +48,16 @@ interface BacklogTask {
   createdAt: string
 }
 
+interface CompletedTask {
+  id: string
+  description: string
+  agent: string
+  source: "config" | "message" | "manual"
+  startedAt: string
+  completedAt: string
+  duration: number // in seconds
+}
+
 const POLLING_INTERVAL = 15000 // 15 seconds
 
 export default function KanbanPage() {
@@ -65,6 +75,10 @@ export default function KanbanPage() {
   const [newTaskOpen, setNewTaskOpen] = useState(false)
   const [newTaskDescription, setNewTaskDescription] = useState("")
   const [newTaskAgent, setNewTaskAgent] = useState<string>("")
+  const [completedTasks, setCompletedTasks] = useState<CompletedTask[]>([])
+  const [historyTab, setHistoryTab] = useState<"active" | "completed">("active")
+  const [historySortBy, setHistorySortBy] = useState<"date" | "agent" | "duration">("date")
+  const [historyAgentFilter, setHistoryAgentFilter] = useState<string>("all")
 
   const fetchAgentData = async () => {
     try {
@@ -173,6 +187,30 @@ export default function KanbanPage() {
     if (agentFilter !== "all" && task.assignedAgent !== agentFilter) return false
     return true
   })
+
+  const activeTasks = backlogTasks.filter(task => task.status === "in-progress")
+
+  const filteredCompletedTasks = completedTasks
+    .filter(task => historyAgentFilter === "all" || task.agent === historyAgentFilter)
+    .sort((a, b) => {
+      switch (historySortBy) {
+        case "date":
+          return new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime()
+        case "agent":
+          return a.agent.localeCompare(b.agent)
+        case "duration":
+          return b.duration - a.duration
+        default:
+          return 0
+      }
+    })
+
+  const formatDuration = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600)
+    const minutes = Math.floor((seconds % 3600) / 60)
+    if (hours > 0) return `${hours}h ${minutes}m`
+    return `${minutes}m`
+  }
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -630,16 +668,173 @@ export default function KanbanPage() {
             </Card>
           </TabsContent>
 
-          {/* SAP-25: Task History (placeholder) */}
-          <TabsContent value="history">
+          {/* SAP-25: Task History */}
+          <TabsContent value="history" className="space-y-4">
             <Card>
               <CardHeader>
-                <CardTitle>Task History</CardTitle>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Task History</CardTitle>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      View active and completed tasks
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant={historyTab === "active" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setHistoryTab("active")}
+                    >
+                      Active ({activeTasks.length})
+                    </Button>
+                    <Button
+                      variant={historyTab === "completed" ? "default" : "outline"}
+                      size="sm"
+                      onClick={() => setHistoryTab("completed")}
+                    >
+                      Completed ({completedTasks.length})
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground">View completed and archived tasks with filtering options.</p>
-              </CardContent>
+              {historyTab === "completed" && (
+                <CardContent>
+                  <div className="flex items-center gap-4 mb-4">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm text-muted-foreground">Sort by:</span>
+                      <Select value={historySortBy} onValueChange={(v: any) => setHistorySortBy(v)}>
+                        <SelectTrigger className="w-[140px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="date">Date</SelectItem>
+                          <SelectItem value="agent">Agent</SelectItem>
+                          <SelectItem value="duration">Duration</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Select value={historyAgentFilter} onValueChange={setHistoryAgentFilter}>
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="Filter by agent" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Agents</SelectItem>
+                        {agents.map(agent => (
+                          <SelectItem key={agent.agentId} value={agent.agentId}>
+                            {agent.agentEmoji} {agent.agentName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </CardContent>
+              )}
             </Card>
+
+            {/* Active Tasks View */}
+            {historyTab === "active" && (
+              <Card>
+                <CardContent className="pt-6">
+                  {activeTasks.length === 0 ? (
+                    <div className="text-center py-12">
+                      <p className="text-muted-foreground">No tasks currently in progress</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {activeTasks.map((task) => {
+                        const agent = agents.find(a => a.agentId === task.assignedAgent)
+                        return (
+                          <motion.div
+                            key={task.id}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className="border rounded-lg p-4"
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-2">
+                                  {agent && (
+                                    <span className="text-lg">{agent.agentEmoji}</span>
+                                  )}
+                                  <Badge variant="default">in progress</Badge>
+                                  <Badge variant="outline">{task.source}</Badge>
+                                </div>
+                                <p className="text-sm font-medium mb-1">{task.description}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  Started {new Date(task.createdAt).toLocaleString()}
+                                </p>
+                              </div>
+                              {agent && (
+                                <div className="text-right ml-4">
+                                  <p className="text-sm font-medium">{agent.agentName}</p>
+                                  <p className="text-xs text-muted-foreground">Working...</p>
+                                </div>
+                              )}
+                            </div>
+                          </motion.div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Completed Tasks View */}
+            {historyTab === "completed" && (
+              <Card>
+                <CardContent className="pt-6">
+                  {filteredCompletedTasks.length === 0 ? (
+                    <div className="text-center py-12">
+                      <p className="text-muted-foreground">No completed tasks yet</p>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Completed tasks will appear here with duration and timestamps
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {/* Table Header */}
+                      <div className="grid grid-cols-12 gap-4 px-4 py-2 text-sm font-medium text-muted-foreground border-b">
+                        <div className="col-span-1">Agent</div>
+                        <div className="col-span-5">Task</div>
+                        <div className="col-span-2">Duration</div>
+                        <div className="col-span-2">Source</div>
+                        <div className="col-span-2">Completed</div>
+                      </div>
+                      
+                      {/* Table Rows */}
+                      {filteredCompletedTasks.map((task) => {
+                        const agent = agents.find(a => a.agentId === task.agent)
+                        return (
+                          <motion.div
+                            key={task.id}
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className="grid grid-cols-12 gap-4 px-4 py-3 text-sm border rounded-lg hover:bg-muted/50 transition-colors"
+                          >
+                            <div className="col-span-1 flex items-center">
+                              <span className="text-2xl">{agent?.agentEmoji}</span>
+                            </div>
+                            <div className="col-span-5">
+                              <p className="font-medium line-clamp-2">{task.description}</p>
+                            </div>
+                            <div className="col-span-2 flex items-center">
+                              <Badge variant="secondary">{formatDuration(task.duration)}</Badge>
+                            </div>
+                            <div className="col-span-2 flex items-center">
+                              <Badge variant="outline">{task.source}</Badge>
+                            </div>
+                            <div className="col-span-2 flex items-center text-xs text-muted-foreground">
+                              {new Date(task.completedAt).toLocaleString()}
+                            </div>
+                          </motion.div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
         </Tabs>
       </main>
