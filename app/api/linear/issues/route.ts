@@ -1,22 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { LinearClient } from "@linear/sdk";
+import { unstable_cache } from "next/cache";
 
 const LINEAR_API_KEY = process.env.LINEAR_API_KEY;
 const TEAM_ID = "5a5f0603-9aec-4e33-a76c-b36e6f8a4bbb";
 
-export async function GET(request: NextRequest) {
-  try {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
+// Cached function to fetch Linear issues (5 min cache)
+const getCachedLinearIssues = unstable_cache(
+  async () => {
     if (!LINEAR_API_KEY) {
-      return NextResponse.json(
-        { error: "Linear API key not configured" },
-        { status: 503 }
-      );
+      throw new Error("Linear API key not configured");
     }
 
     const linearClient = new LinearClient({ apiKey: LINEAR_API_KEY });
@@ -94,17 +88,60 @@ export async function GET(request: NextRequest) {
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
 
-    console.log(`[Linear API] Returning ${sortedIssues.length} issues`);
+    console.log(`[Linear API] Returning ${sortedIssues.length} issues (cached)`);
     console.log(`[Linear API] First 3 issues:`, sortedIssues.slice(0, 3).map(i => ({ id: i.identifier, title: i.title, column: i.column })));
 
-    return NextResponse.json({ issues: sortedIssues });
+    return sortedIssues;
+  },
+  ["linear-issues"], // cache key
+  {
+    revalidate: 300, // 5 minutes cache
+    tags: ["linear-issues"],
+  }
+);
+
+export async function GET(request: NextRequest) {
+  try {
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    if (!LINEAR_API_KEY) {
+      return NextResponse.json(
+        { error: "Linear API key not configured" },
+        { status: 503 }
+      );
+    }
+
+    // Get cached issues
+    const issues = await getCachedLinearIssues();
+    
+    return NextResponse.json({ 
+      issues,
+      cached: true,
+      cacheInfo: "Data cached for 5 minutes to avoid rate limits"
+    });
   } catch (error) {
     console.error("Failed to fetch Linear issues:", error);
     console.error("Error details:", error instanceof Error ? error.message : String(error));
     console.error("Error stack:", error instanceof Error ? error.stack : "");
+    
+    // Check if it's a rate limit error
+    const isRateLimit = error instanceof Error && (
+      error.message.includes("rate limit") || 
+      error.message.includes("429") ||
+      error.message.includes("too many requests")
+    );
+    
     return NextResponse.json(
-      { error: "Failed to fetch issues from Linear", details: error instanceof Error ? error.message : String(error) },
-      { status: 500 }
+      { 
+        error: "Failed to fetch issues from Linear", 
+        details: error instanceof Error ? error.message : String(error),
+        rateLimited: isRateLimit,
+        retryAfter: isRateLimit ? 300 : undefined // 5 min
+      },
+      { status: isRateLimit ? 429 : 500 }
     );
   }
 }

@@ -52,7 +52,7 @@ interface AgentStatus {
   sessions: AgentSession[]
 }
 
-const POLLING_INTERVAL = 15000 // 15 seconds
+const POLLING_INTERVAL = 60000 // 60 seconds (reduced from 15s to avoid rate limits)
 
 export default function KanbanPage() {
   const [issues, setIssues] = useState<LinearIssue[]>([])
@@ -84,10 +84,10 @@ export default function KanbanPage() {
   const [historySortBy, setHistorySortBy] = useState<"date" | "agent" | "duration">("date")
   const [historyAgentFilter, setHistoryAgentFilter] = useState<string>("all")
 
-  const fetchKanbanData = async () => {
+  const fetchKanbanData = async (retryCount = 0) => {
     try {
       // Fetch Linear issues
-      console.log("[Kanban] Fetching Linear issues...")
+      console.log("[Kanban] Fetching Linear issues... (attempt", retryCount + 1, ")")
       const issuesRes = await fetch("/api/linear/issues")
       console.log("[Kanban] Linear API response status:", issuesRes.status)
       
@@ -95,7 +95,23 @@ export default function KanbanPage() {
         const data = await issuesRes.json()
         console.log("[Kanban] Linear data received:", data)
         console.log("[Kanban] Issues count:", data.issues?.length || 0)
+        if (data.cached) {
+          console.log("[Kanban] Data from cache:", data.cacheInfo)
+        }
         setIssues(data.issues || [])
+      } else if (issuesRes.status === 429 || issuesRes.status === 503) {
+        // Rate limit or service unavailable - retry with exponential backoff
+        const errorData = await issuesRes.json().catch(() => ({}))
+        console.warn("[Kanban] Rate limit or service error:", errorData)
+        
+        if (retryCount < 3) {
+          const backoffTime = Math.min(1000 * Math.pow(2, retryCount), 10000) // Max 10s
+          console.log(`[Kanban] Retrying in ${backoffTime}ms...`)
+          setTimeout(() => fetchKanbanData(retryCount + 1), backoffTime)
+          return
+        } else {
+          console.error("[Kanban] Max retries reached, giving up")
+        }
       } else {
         console.error("[Kanban] Linear API error:", issuesRes.status, issuesRes.statusText)
         const errorData = await issuesRes.json().catch(() => ({}))
@@ -256,7 +272,7 @@ export default function KanbanPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={fetchKanbanData}
+                onClick={() => fetchKanbanData()}
                 disabled={isLoading}
               >
                 <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
