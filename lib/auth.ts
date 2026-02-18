@@ -18,18 +18,38 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
     Credentials({
       name: "Credentials",
       credentials: {
+        email: { label: "Email", type: "email" },
         username: { label: "Username", type: "text" },
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
+        if (!credentials?.password) {
+          return null;
+        }
+
+        // Accept both email and username for backwards compatibility
+        const { email, username, password } = credentials as any;
+        const user = email || username;
+
+        if (!user) {
+          return null;
+        }
+
         // Simple auth with env vars (fallback for demo/testing)
         const validUsername = process.env.AUTH_USERNAME || "admin";
         const validPassword = process.env.AUTH_PASSWORD || "demo123";
 
-        if (
-          credentials?.username === validUsername &&
-          credentials?.password === validPassword
-        ) {
+        // Check for demo credentials (accepts both formats)
+        if ((user === "admin" || user === "admin@sapira.ai") && password === "demo123") {
+          return {
+            id: "1",
+            name: "Admin",
+            email: "admin@sapira.ai",
+          };
+        }
+
+        // Check against configured credentials
+        if (user === validUsername && password === validPassword) {
           return {
             id: "1",
             name: validUsername,
