@@ -12,6 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { JsonEditor } from "@/components/json-editor"
 import { FileBrowser } from "@/components/file-browser"
 import { MarkdownEditor } from "@/components/markdown-editor"
+import { LogsViewer } from "@/components/logs-viewer"
+import { SessionsList } from "@/components/sessions-list"
 import { AgentStatus } from "@/lib/types"
 
 interface WorkspaceFile {
@@ -402,20 +404,9 @@ export default function AgentDetailPage() {
             </div>
           </TabsContent>
 
-          <TabsContent value="logs">
-            <Card>
-              <CardHeader>
-                <CardTitle>Logs & Sessions</CardTitle>
-                <CardDescription>
-                  SAP-8: Logs viewer coming next
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground">
-                  Real-time logs and session history...
-                </p>
-              </CardContent>
-            </Card>
+          <TabsContent value="logs" className="space-y-6">
+            <LogsViewer agentId={agentId} />
+            <SessionsList agentId={agentId} />
           </TabsContent>
         </Tabs>
       </main>
