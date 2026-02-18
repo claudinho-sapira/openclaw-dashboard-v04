@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { isDemoMode, MOCK_FILE_CONTENT } from "@/lib/mock-data";
 import fs from "fs/promises";
 import path from "path";
 
@@ -35,6 +36,17 @@ export async function GET(
     // Security: only allow specific files
     if (!ALLOWED_FILES.includes(filename)) {
       return NextResponse.json({ error: "File not allowed" }, { status: 403 });
+    }
+
+    // Demo mode: return mock content
+    if (isDemoMode()) {
+      const content = MOCK_FILE_CONTENT[filename] || "";
+      return NextResponse.json({
+        name: filename,
+        content,
+        size: content.length,
+        modified: new Date().toISOString(),
+      });
     }
 
     const workspacePath = WORKSPACE_PATHS[id];
@@ -90,14 +102,24 @@ export async function PUT(
       return NextResponse.json({ error: "File not allowed" }, { status: 403 });
     }
 
-    const workspacePath = WORKSPACE_PATHS[id];
-    if (!workspacePath) {
-      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
-    }
-
     const { content } = await request.json();
     if (typeof content !== "string") {
       return NextResponse.json({ error: "Invalid content" }, { status: 400 });
+    }
+
+    // Demo mode: simulate success
+    if (isDemoMode()) {
+      return NextResponse.json({
+        success: true,
+        name: filename,
+        size: content.length,
+        modified: new Date().toISOString(),
+      });
+    }
+
+    const workspacePath = WORKSPACE_PATHS[id];
+    if (!workspacePath) {
+      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
     }
 
     const filePath = path.join(workspacePath, filename);

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { gatewayCall } from "@/lib/gateway";
+import { isDemoMode, MOCK_CONFIG } from "@/lib/mock-data";
 
 export async function GET(
   request: NextRequest,
@@ -13,6 +14,11 @@ export async function GET(
     }
 
     const { id } = await params;
+
+    // Demo mode: return mock config
+    if (isDemoMode()) {
+      return NextResponse.json(MOCK_CONFIG);
+    }
 
     // Get agent config from gateway
     const config = await gatewayCall("config.get", {
@@ -41,6 +47,11 @@ export async function PATCH(
 
     const { id } = await params;
     const body = await request.json();
+
+    // Demo mode: simulate success
+    if (isDemoMode()) {
+      return NextResponse.json({ success: true, config: body.config });
+    }
 
     // Update agent config via gateway
     const result = await gatewayCall("config.patch", {

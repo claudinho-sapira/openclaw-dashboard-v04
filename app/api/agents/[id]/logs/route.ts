@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { isDemoMode, MOCK_LOGS } from "@/lib/mock-data";
 import fs from "fs/promises";
 import path from "path";
 
@@ -19,6 +20,21 @@ export async function GET(
     const url = new URL(request.url);
     const lines = parseInt(url.searchParams.get("lines") || "100");
     const severity = url.searchParams.get("severity") || "all";
+
+    // Demo mode: return mock logs
+    if (isDemoMode()) {
+      let logs = MOCK_LOGS.filter(log => log.agent === id);
+      
+      // Filter by severity
+      if (severity !== "all") {
+        logs = logs.filter(log => log.level === severity);
+      }
+      
+      // Limit lines
+      logs = logs.slice(-lines);
+      
+      return NextResponse.json({ logs });
+    }
 
     // Get today's log file
     const today = new Date().toISOString().split("T")[0];

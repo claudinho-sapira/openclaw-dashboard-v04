@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { gatewayInvokeTool } from "@/lib/gateway";
+import { isDemoMode, MOCK_SESSIONS } from "@/lib/mock-data";
 
 export async function GET(
   request: NextRequest,
@@ -13,6 +14,15 @@ export async function GET(
     }
 
     const { id } = await params;
+
+    // Demo mode: return mock sessions
+    if (isDemoMode()) {
+      const sessions = MOCK_SESSIONS.filter((s: any) => {
+        const sessionKey = s.key || "";
+        return sessionKey.includes(`:${id}:`);
+      });
+      return NextResponse.json({ sessions });
+    }
 
     // Get sessions for this agent via sessions_list tool
     const result = await gatewayInvokeTool("sessions_list", {

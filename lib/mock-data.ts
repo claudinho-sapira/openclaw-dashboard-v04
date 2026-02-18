@@ -211,6 +211,103 @@ export const MOCK_CONFIG = {
   },
 };
 
+export const MOCK_TASKS = [
+  {
+    id: "task-1",
+    title: "Implement dashboard home page",
+    description: "Create responsive dashboard with agent cards and real-time status",
+    agent: "builder",
+    priority: "high",
+    status: "done",
+    labels: "frontend,ui",
+    createdAt: new Date(Date.now() - 86400000 * 3).toISOString(),
+    updatedAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+  },
+  {
+    id: "task-2",
+    title: "Add authentication system",
+    description: "Implement NextAuth with credentials provider",
+    agent: "builder",
+    priority: "high",
+    status: "done",
+    labels: "security,auth",
+    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+    updatedAt: new Date(Date.now() - 86400000).toISOString(),
+  },
+  {
+    id: "task-3",
+    title: "Create Kanban board",
+    description: "Drag & drop task management with filters",
+    agent: "builder",
+    priority: "medium",
+    status: "in-progress",
+    labels: "frontend,ui",
+    createdAt: new Date(Date.now() - 86400000).toISOString(),
+    updatedAt: new Date(Date.now() - 3600000).toISOString(),
+  },
+  {
+    id: "task-4",
+    title: "Test workspace file editor",
+    description: "Verify visual mode works for IDENTITY.md and SOUL.md",
+    agent: "qa",
+    priority: "high",
+    status: "todo",
+    labels: "testing,qa",
+    createdAt: new Date(Date.now() - 3600000 * 12).toISOString(),
+    updatedAt: new Date(Date.now() - 3600000 * 12).toISOString(),
+  },
+  {
+    id: "task-5",
+    title: "Review agent config editor",
+    description: "Test save/reset buttons functionality",
+    agent: "qa",
+    priority: "medium",
+    status: "blocked",
+    labels: "testing,qa",
+    createdAt: new Date(Date.now() - 3600000 * 6).toISOString(),
+    updatedAt: new Date(Date.now() - 3600000 * 6).toISOString(),
+  },
+  {
+    id: "task-6",
+    title: "Write E2E test suite",
+    description: "Playwright tests for all critical user flows",
+    agent: "qa",
+    priority: "medium",
+    status: "todo",
+    labels: "testing,automation",
+    createdAt: new Date(Date.now() - 3600000 * 2).toISOString(),
+    updatedAt: new Date(Date.now() - 3600000 * 2).toISOString(),
+  },
+];
+
+// In-memory store for demo mode (simulates persistence within session)
+let demoTaskStore = [...MOCK_TASKS];
+
+export const getDemoTasks = () => [...demoTaskStore];
+
+export const addDemoTask = (task: any) => {
+  demoTaskStore.push(task);
+  return task;
+};
+
+export const updateDemoTask = (id: string, updates: any) => {
+  const index = demoTaskStore.findIndex(t => t.id === id);
+  if (index !== -1) {
+    demoTaskStore[index] = { ...demoTaskStore[index], ...updates, updatedAt: new Date().toISOString() };
+    return demoTaskStore[index];
+  }
+  return null;
+};
+
+export const deleteDemoTask = (id: string) => {
+  const index = demoTaskStore.findIndex(t => t.id === id);
+  if (index !== -1) {
+    demoTaskStore.splice(index, 1);
+    return true;
+  }
+  return false;
+};
+
 export const isDemoMode = () => {
   return process.env.DEMO_MODE === "true" || !process.env.GATEWAY_URL || process.env.GATEWAY_URL.includes("127.0.0.1");
 };

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
+import { isDemoMode, MOCK_FILES } from "@/lib/mock-data";
 import fs from "fs/promises";
 import path from "path";
 
@@ -30,6 +31,12 @@ export async function GET(
     }
 
     const { id } = await params;
+    
+    // Demo mode: return mock files
+    if (isDemoMode()) {
+      return NextResponse.json({ files: MOCK_FILES });
+    }
+
     const workspacePath = WORKSPACE_PATHS[id];
 
     if (!workspacePath) {
