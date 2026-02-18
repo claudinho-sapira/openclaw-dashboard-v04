@@ -40,6 +40,12 @@ prisma/dev.db-journal
 # cloudflare tunnel
 cloudflared.log
 tunnel-config.yml
+
+# playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
 dev.log
 
 /lib/generated/prisma
