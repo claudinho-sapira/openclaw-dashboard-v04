@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { gatewayCall } from "@/lib/gateway";
+import fs from "fs/promises";
+import path from "path";
+
+const WORKSPACE_PATHS: Record<string, string> = {
+  pm: "/Users/claudinho/.openclaw/workspace-pm",
+  builder: "/Users/claudinho/.openclaw/workspace-builder",
+  qa: "/Users/claudinho/.openclaw/workspace-qa",
+};
 
 const ALLOWED_FILES = [
   "SOUL.md",
@@ -30,29 +37,38 @@ export async function GET(
       return NextResponse.json({ error: "File not allowed" }, { status: 403 });
     }
 
-    // Get file content from gateway
-    const result = await gatewayCall("workspace.read", {
-      agent: id,
-      file: filename,
-    });
+    const workspacePath = WORKSPACE_PATHS[id];
+    if (!workspacePath) {
+      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+    }
 
-    return NextResponse.json({
-      name: filename,
-      content: result.content || "",
-      size: result.size || 0,
-      modified: result.modified || new Date().toISOString(),
-    });
+    const filePath = path.join(workspacePath, filename);
+
+    try {
+      const content = await fs.readFile(filePath, "utf-8");
+      const stats = await fs.stat(filePath);
+
+      return NextResponse.json({
+        name: filename,
+        content,
+        size: stats.size,
+        modified: stats.mtime.toISOString(),
+      });
+    } catch (error) {
+      // File doesn't exist - return empty content
+      return NextResponse.json({
+        name: filename,
+        content: "",
+        size: 0,
+        modified: new Date().toISOString(),
+      });
+    }
   } catch (error) {
     console.error("Failed to read file:", error);
-    // Return empty content if file doesn't exist
-    const { path: pathSegments } = await params;
-    const filename = pathSegments.join("/");
-    return NextResponse.json({
-      name: filename,
-      content: "",
-      size: 0,
-      modified: new Date().toISOString(),
-    });
+    return NextResponse.json(
+      { error: "Failed to read file" },
+      { status: 500 }
+    );
   }
 }
 
@@ -74,24 +90,35 @@ export async function PUT(
       return NextResponse.json({ error: "File not allowed" }, { status: 403 });
     }
 
+    const workspacePath = WORKSPACE_PATHS[id];
+    if (!workspacePath) {
+      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+    }
+
     const { content } = await request.json();
     if (typeof content !== "string") {
       return NextResponse.json({ error: "Invalid content" }, { status: 400 });
     }
 
-    // Write file to gateway
-    const result = await gatewayCall("workspace.write", {
-      agent: id,
-      file: filename,
-      content,
-    });
+    const filePath = path.join(workspacePath, filename);
 
-    return NextResponse.json({
-      success: true,
-      name: filename,
-      size: content.length,
-      modified: new Date().toISOString(),
-    });
+    try {
+      await fs.writeFile(filePath, content, "utf-8");
+      const stats = await fs.stat(filePath);
+
+      return NextResponse.json({
+        success: true,
+        name: filename,
+        size: stats.size,
+        modified: stats.mtime.toISOString(),
+      });
+    } catch (error) {
+      console.error("Failed to write file:", error);
+      return NextResponse.json(
+        { error: "Failed to write file" },
+        { status: 500 }
+      );
+    }
   } catch (error) {
     console.error("Failed to write file:", error);
     return NextResponse.json(

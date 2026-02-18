@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { gatewayCall } from "@/lib/gateway";
+import fs from "fs/promises";
+import path from "path";
+
+const WORKSPACE_PATHS: Record<string, string> = {
+  pm: "/Users/claudinho/.openclaw/workspace-pm",
+  builder: "/Users/claudinho/.openclaw/workspace-builder",
+  qa: "/Users/claudinho/.openclaw/workspace-qa",
+};
 
 const WORKSPACE_FILES = [
   "SOUL.md",
@@ -24,19 +31,36 @@ export async function GET(
 
     const { id } = await params;
     
-    // Get workspace files list from gateway
-    const result = await gatewayCall("workspace.list", {
-      agent: id,
-    });
+    const workspacePath = WORKSPACE_PATHS[id];
 
-    // Transform to our format
-    const files = (result.files || WORKSPACE_FILES.map(name => ({ name, exists: false }))).map((file: any) => ({
-      name: file.name,
-      path: file.name,
-      size: file.size || 0,
-      modified: file.modified || new Date().toISOString(),
-      exists: file.exists !== false,
-    }));
+    if (!workspacePath) {
+      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+    }
+
+    // List all workspace files with metadata
+    const files = await Promise.all(
+      WORKSPACE_FILES.map(async (filename) => {
+        const filePath = path.join(workspacePath, filename);
+        try {
+          const stats = await fs.stat(filePath);
+          return {
+            name: filename,
+            path: filename,
+            size: stats.size,
+            modified: stats.mtime.toISOString(),
+            exists: true,
+          };
+        } catch (error) {
+          return {
+            name: filename,
+            path: filename,
+            size: 0,
+            modified: new Date().toISOString(),
+            exists: false,
+          };
+        }
+      })
+    );
 
     return NextResponse.json({ files });
   } catch (error) {
