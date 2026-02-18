@@ -1,111 +1,39 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { gatewayInvokeTool } from "@/lib/gateway";
-import { isDemoMode, MOCK_AGENTS } from "@/lib/mock-data";
-import fs from "fs/promises";
-import path from "path";
-
-interface AgentConfig {
-  id: string;
-  workspacePath: string;
-}
-
-const AGENTS: AgentConfig[] = [
-  { id: "pm", workspacePath: "/Users/claudinho/.openclaw/workspace-pm" },
-  { id: "builder", workspacePath: "/Users/claudinho/.openclaw/workspace-builder" },
-  { id: "qa", workspacePath: "/Users/claudinho/.openclaw/workspace-qa" },
-];
-
-async function parseIdentityFile(workspacePath: string) {
-  try {
-    const identityPath = path.join(workspacePath, "IDENTITY.md");
-    const content = await fs.readFile(identityPath, "utf-8");
-    
-    const nameMatch = content.match(/\*\*Name:\*\*\s*(.+)/);
-    const roleMatch = content.match(/\*\*Role:\*\*\s*(.+)/);
-    const emojiMatch = content.match(/\*\*Emoji:\*\*\s*(.+)/);
-    const themeMatch = content.match(/\*\*Theme:\*\*\s*(.+)/);
-
-    return {
-      name: nameMatch ? nameMatch[1].trim() : "Unknown",
-      role: roleMatch ? roleMatch[1].trim() : "Unknown",
-      emoji: emojiMatch ? emojiMatch[1].trim() : "🤖",
-      theme: themeMatch ? themeMatch[1].trim() : undefined,
-    };
-  } catch (error) {
-    console.error(`Failed to parse IDENTITY.md for ${workspacePath}:`, error);
-    return {
-      name: "Unknown",
-      role: "Unknown",
-      emoji: "🤖",
-    };
-  }
-}
-
-async function getAgentStatus(agentId: string) {
-  try {
-    const result = await gatewayInvokeTool("session_status", {
-      sessionKey: `agent:${agentId}:main`,
-    });
-    
-    return {
-      model: result.model || "unknown",
-      tokensUsed: result.usage?.total || 0,
-      tokensLimit: result.limits?.total || 100000,
-      lastActive: new Date().toISOString(),
-      sessions: result.sessions || 0,
-      status: "running" as const,
-    };
-  } catch (error) {
-    console.error(`Failed to get status for agent ${agentId}:`, error);
-    return {
-      model: "unknown",
-      tokensUsed: 0,
-      tokensLimit: 100000,
-      lastActive: new Date().toISOString(),
-      sessions: 0,
-      status: "error" as const,
-    };
-  }
-}
+import { gatewayInvokeTool, gatewayCall } from "@/lib/gateway";
 
 export async function GET() {
   try {
-    // Check authentication
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Demo mode: return mock data (ALWAYS check this first)
-    const demoMode = isDemoMode();
-    console.log("[Agents API] Demo mode:", demoMode, "DEMO_MODE env:", process.env.DEMO_MODE);
+    // Get list of agents from gateway
+    const result = await gatewayCall("agents.list");
     
-    if (demoMode) {
-      return NextResponse.json({ agents: MOCK_AGENTS });
-    }
+    // Transform to our format
+    const agents = (result.agents || []).map((agent: any) => ({
+      id: agent.id,
+      identity: {
+        name: agent.name || agent.id,
+        role: agent.role || "Agent",
+        emoji: agent.emoji || "🤖",
+        theme: agent.theme,
+      },
+      model: agent.model || "unknown",
+      tokensUsed: agent.usage?.tokens || 0,
+      tokensLimit: agent.limits?.tokens || 100000,
+      lastActive: agent.lastActive || new Date().toISOString(),
+      sessions: agent.sessions || 0,
+      status: agent.status || "running",
+    }));
 
-    // Fetch all agent data in parallel
-    const agentsData = await Promise.all(
-      AGENTS.map(async (agent) => {
-        const [identity, status] = await Promise.all([
-          parseIdentityFile(agent.workspacePath),
-          getAgentStatus(agent.id),
-        ]);
-
-        return {
-          id: agent.id,
-          identity,
-          ...status,
-        };
-      })
-    );
-
-    return NextResponse.json({ agents: agentsData });
+    return NextResponse.json({ agents });
   } catch (error) {
     console.error("Failed to fetch agents:", error);
     return NextResponse.json(
-      { error: "Failed to fetch agents" },
+      { error: "Failed to fetch agents from gateway" },
       { status: 500 }
     );
   }

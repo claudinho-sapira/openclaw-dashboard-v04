@@ -1,38 +1,28 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { gatewayCall } from "@/lib/gateway";
-import { isDemoMode, MOCK_HEALTH } from "@/lib/mock-data";
 
 export async function GET() {
   try {
-    // Check authentication
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Demo mode: return mock data (ALWAYS check this first)
-    const demoMode = isDemoMode();
-    console.log("[Health API] Demo mode:", demoMode, "DEMO_MODE env:", process.env.DEMO_MODE);
-    
-    if (demoMode) {
-      return NextResponse.json(MOCK_HEALTH);
-    }
-
     // Get gateway health
     const healthData = await gatewayCall("health");
     
-    // Parse health data into structured format
+    // Transform to our format
     const health = {
       status: healthData?.ok ? "healthy" : "degraded",
       gateway: {
         version: healthData?.version || "unknown",
         uptime: healthData?.uptime || 0,
       },
-      channels: healthData?.channels?.map((ch: any) => ({
+      channels: (healthData?.channels || []).map((ch: any) => ({
         name: ch.name || "unknown",
         status: ch.connected ? "connected" : "disconnected",
-      })) || [],
+      })),
     };
 
     return NextResponse.json(health);
@@ -41,10 +31,11 @@ export async function GET() {
     return NextResponse.json(
       {
         status: "down",
+        error: error instanceof Error ? error.message : "Gateway unreachable",
         gateway: { version: "unknown", uptime: 0 },
         channels: [],
       },
-      { status: 200 } // Return 200 with "down" status instead of 502
+      { status: 503 }
     );
   }
 }

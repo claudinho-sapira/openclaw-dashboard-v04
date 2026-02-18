@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { isDemoMode, getDemoTasks, addDemoTask } from "@/lib/mock-data";
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,26 +12,6 @@ export async function GET(request: NextRequest) {
     const url = new URL(request.url);
     const agent = url.searchParams.get("agent");
     const priority = url.searchParams.get("priority");
-
-    // Demo mode: use mock data
-    if (isDemoMode()) {
-      let tasks = getDemoTasks();
-      
-      // Apply filters
-      if (agent && agent !== "all") {
-        tasks = tasks.filter(t => t.agent === agent);
-      }
-      if (priority && priority !== "all") {
-        tasks = tasks.filter(t => t.priority === priority);
-      }
-
-      // Sort by createdAt desc
-      tasks = tasks.sort((a, b) => 
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
-
-      return NextResponse.json({ tasks });
-    }
 
     const where: any = {};
     if (agent && agent !== "all") where.agent = agent;
@@ -68,24 +47,6 @@ export async function POST(request: NextRequest) {
         { error: "Missing required fields" },
         { status: 400 }
       );
-    }
-
-    // Demo mode: use mock data
-    if (isDemoMode()) {
-      const task = {
-        id: `task-${Date.now()}`,
-        title,
-        description: description || "",
-        agent,
-        priority,
-        labels: labels || "",
-        status: status || "todo",
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-
-      addDemoTask(task);
-      return NextResponse.json({ task });
     }
 
     const task = await prisma.task.create({

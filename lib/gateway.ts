@@ -2,10 +2,20 @@
  * Gateway client for communicating with the OpenClaw gateway
  */
 
-const GATEWAY_URL = process.env.GATEWAY_URL || "http://127.0.0.1:18789";
-const GATEWAY_TOKEN = process.env.GATEWAY_TOKEN || "";
+const GATEWAY_URL = process.env.NEXT_PUBLIC_GATEWAY_URL || process.env.GATEWAY_URL;
+const GATEWAY_TOKEN = process.env.GATEWAY_TOKEN;
+
+if (!GATEWAY_URL) {
+  console.warn("⚠️ GATEWAY_URL not configured");
+}
+
+if (!GATEWAY_TOKEN) {
+  console.warn("⚠️ GATEWAY_TOKEN not configured");
+}
 
 interface GatewayRPCRequest {
+  jsonrpc: string;
+  id: number;
   method: string;
   params?: Record<string, any>;
 }
@@ -25,22 +35,32 @@ export async function gatewayCall<T = any>(
   method: string,
   params?: Record<string, any>
 ): Promise<T> {
+  if (!GATEWAY_URL) {
+    throw new Error("Gateway URL not configured. Set NEXT_PUBLIC_GATEWAY_URL environment variable.");
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  if (GATEWAY_TOKEN) {
+    headers["Authorization"] = `Bearer ${GATEWAY_TOKEN}`;
+  }
+
   const response = await fetch(`${GATEWAY_URL}/rpc`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(GATEWAY_TOKEN && { Authorization: `Bearer ${GATEWAY_TOKEN}` }),
-    },
+    headers,
     body: JSON.stringify({
       jsonrpc: "2.0",
       id: Date.now(),
       method,
-      params,
-    } as GatewayRPCRequest & { jsonrpc: string; id: number }),
+      params: params || {},
+    } as GatewayRPCRequest),
   });
 
   if (!response.ok) {
-    throw new Error(`Gateway RPC failed: ${response.statusText}`);
+    const errorText = await response.text().catch(() => response.statusText);
+    throw new Error(`Gateway RPC failed (${response.status}): ${errorText}`);
   }
 
   const data: GatewayRPCResponse<T> = await response.json();
@@ -57,14 +77,23 @@ export async function gatewayCall<T = any>(
  */
 export async function gatewayInvokeTool(
   tool: string,
-  parameters: Record<string, any>
+  parameters: Record<string, any> = {}
 ): Promise<any> {
+  if (!GATEWAY_URL) {
+    throw new Error("Gateway URL not configured. Set NEXT_PUBLIC_GATEWAY_URL environment variable.");
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+
+  if (GATEWAY_TOKEN) {
+    headers["Authorization"] = `Bearer ${GATEWAY_TOKEN}`;
+  }
+
   const response = await fetch(`${GATEWAY_URL}/tools/invoke`, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(GATEWAY_TOKEN && { Authorization: `Bearer ${GATEWAY_TOKEN}` }),
-    },
+    headers,
     body: JSON.stringify({
       tool,
       parameters,
@@ -72,7 +101,8 @@ export async function gatewayInvokeTool(
   });
 
   if (!response.ok) {
-    throw new Error(`Gateway tool invoke failed: ${response.statusText}`);
+    const errorText = await response.text().catch(() => response.statusText);
+    throw new Error(`Gateway tool invoke failed (${response.status}): ${errorText}`);
   }
 
   return response.json();
