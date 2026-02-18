@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { gatewayInvokeTool } from "@/lib/gateway";
+import { isDemoMode, MOCK_AGENTS } from "@/lib/mock-data";
 import fs from "fs/promises";
 import path from "path";
 
@@ -74,6 +75,11 @@ export async function GET() {
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Demo mode: return mock data
+    if (isDemoMode()) {
+      return NextResponse.json({ agents: MOCK_AGENTS });
     }
 
     // Fetch all agent data in parallel

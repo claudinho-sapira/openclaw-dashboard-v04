@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { gatewayCall } from "@/lib/gateway";
+import { isDemoMode, MOCK_HEALTH } from "@/lib/mock-data";
 
 export async function GET() {
   try {
@@ -8,6 +9,11 @@ export async function GET() {
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Demo mode: return mock data
+    if (isDemoMode()) {
+      return NextResponse.json(MOCK_HEALTH);
     }
 
     // Get gateway health
