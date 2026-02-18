@@ -1,70 +1,94 @@
 "use client"
 
 import { signIn } from "next-auth/react"
-import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useState, Suspense } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { AuroraBackground } from "@/components/ui/aurora-background"
+import { motion } from "framer-motion"
 
-export default function SignInPage() {
-  const [username, setUsername] = useState("")
-  const [password, setPassword] = useState("")
-  const [error, setError] = useState("")
-  const [isLoading, setIsLoading] = useState(false)
-  const [isGoogleLoading, setIsGoogleLoading] = useState(false)
+function SignInForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const callbackUrl = searchParams.get("callbackUrl") || "/"
+  
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleGoogleSignIn = async () => {
+    setLoading(true)
+    setError("")
+    try {
+      await signIn("google", { callbackUrl })
+    } catch (err) {
+      setError("Failed to sign in with Google")
+      setLoading(false)
+    }
+  }
+
+  const handleCredentialsSignIn = async (e: React.FormEvent) => {
     e.preventDefault()
-    setIsLoading(true)
+    setLoading(true)
     setError("")
 
     try {
       const result = await signIn("credentials", {
-        username,
+        email,
         password,
         redirect: false,
       })
 
       if (result?.error) {
-        setError("Invalid credentials")
+        setError("Invalid email or password")
+        setLoading(false)
       } else {
-        router.push("/dashboard")
+        router.push(callbackUrl)
       }
-    } catch (error) {
-      setError("An error occurred")
-    } finally {
-      setIsLoading(false)
+    } catch (err) {
+      setError("An error occurred during sign in")
+      setLoading(false)
     }
   }
-
-  const handleGoogleSignIn = async () => {
-    setIsGoogleLoading(true)
-    try {
-      await signIn("google", { redirectTo: "/dashboard" })
-    } catch (error) {
-      setError("Failed to sign in with Google")
-      setIsGoogleLoading(false)
-    }
-  }
-
-  // Check if Google OAuth is configured
-  // Always show Google button if credentials are configured
-  const isGoogleConfigured = true
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 dark:from-gray-900 dark:to-gray-800">
-      <div className="bg-white dark:bg-gray-800 p-8 rounded-lg shadow-lg max-w-md w-full">
-        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">OpenClaw Dashboard</h1>
-        <p className="text-gray-600 dark:text-gray-400 mb-8">Sign in to continue</p>
-        
-        {/* Google Sign In - Only show if configured */}
-        {isGoogleConfigured && (
-          <>
-            <button
+    <AuroraBackground>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6 }}
+        className="relative z-10"
+      >
+        {/* Glassmorphism Card */}
+        <div className="w-full max-w-md mx-auto px-4">
+          <div className="relative backdrop-blur-xl bg-white/10 dark:bg-black/10 border border-white/20 dark:border-white/10 rounded-2xl shadow-2xl p-8">
+            {/* Header */}
+            <div className="text-center mb-8">
+              <h1 className="text-4xl font-bold mb-2 bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-violet-600 dark:from-blue-400 dark:to-violet-400">
+                Sapira Team
+              </h1>
+              <p className="text-lg text-slate-700 dark:text-slate-300">
+                Agent Management Tower
+              </p>
+            </div>
+
+            {/* Error Message */}
+            {error && (
+              <div className="mb-6 p-3 rounded-lg bg-red-500/20 border border-red-500/50 text-red-700 dark:text-red-300 text-sm">
+                {error}
+              </div>
+            )}
+
+            {/* Google Sign In Button */}
+            <Button
               onClick={handleGoogleSignIn}
-              disabled={isGoogleLoading || isLoading}
-              className="w-full flex items-center justify-center gap-3 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 px-6 py-3 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition font-medium disabled:opacity-50 mb-6"
+              disabled={loading}
+              className="w-full bg-white hover:bg-gray-50 text-slate-900 font-semibold py-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 mb-6"
             >
-              <svg className="w-5 h-5" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24">
                 <path
                   fill="currentColor"
                   d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -82,78 +106,88 @@ export default function SignInPage() {
                   d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
                 />
               </svg>
-              {isGoogleLoading ? "Signing in..." : "Sign in with Google"}
-            </button>
+              Sign in with Google
+            </Button>
 
-            <div className="relative mb-6">
+            {/* Separator */}
+            <div className="relative flex items-center justify-center my-6">
               <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300 dark:border-gray-600"></div>
+                <div className="w-full border-t border-white/20"></div>
               </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">
-                  Or continue with
-                </span>
+              <div className="relative px-4 bg-white/20 dark:bg-black/20 backdrop-blur-sm rounded-full">
+                <span className="text-sm text-slate-600 dark:text-slate-400">Or continue with</span>
               </div>
             </div>
-          </>
-        )}
-        
-        {/* Credentials Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Username
-            </label>
-            <input
-              id="username"
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="admin"
-              required
-            />
-          </div>
 
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              placeholder="••••••••"
-              required
-            />
-          </div>
+            {/* Credentials Form */}
+            <form onSubmit={handleCredentialsSignIn} className="space-y-4">
+              <div>
+                <Label htmlFor="email" className="text-slate-700 dark:text-slate-300 font-medium">
+                  Email
+                </Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  disabled={loading}
+                  className="mt-1 bg-white/50 dark:bg-black/50 border-white/20 backdrop-blur-sm focus:border-blue-500 focus:ring-blue-500"
+                />
+              </div>
 
-          {error && (
-            <div className="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-4 py-2 rounded">
-              {error}
+              <div>
+                <Label htmlFor="password" className="text-slate-700 dark:text-slate-300 font-medium">
+                  Password
+                </Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  disabled={loading}
+                  className="mt-1 bg-white/50 dark:bg-black/50 border-white/20 backdrop-blur-sm focus:border-blue-500 focus:ring-blue-500"
+                />
+              </div>
+
+              <Button
+                type="submit"
+                disabled={loading}
+                className="w-full bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-700 hover:to-violet-700 text-white font-semibold py-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 mt-6"
+              >
+                {loading ? "Signing in..." : "Let's go"}
+              </Button>
+            </form>
+          </div>
+        </div>
+      </motion.div>
+    </AuroraBackground>
+  )
+}
+
+export default function SignInPage() {
+  return (
+    <Suspense fallback={
+      <AuroraBackground>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="relative z-10"
+        >
+          <div className="w-full max-w-md mx-auto px-4">
+            <div className="relative backdrop-blur-xl bg-white/10 dark:bg-black/10 border border-white/20 dark:border-white/10 rounded-2xl shadow-2xl p-8">
+              <div className="text-center">
+                <div className="animate-pulse">Loading...</div>
+              </div>
             </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={isLoading || isGoogleLoading}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-medium transition disabled:opacity-50"
-          >
-            {isLoading ? "Signing in..." : "Sign in"}
-          </button>
-        </form>
-        
-        <p className="mt-6 text-sm text-gray-500 dark:text-gray-400 text-center">
-          Demo credentials: admin / demo123
-        </p>
-        {isGoogleConfigured && (
-          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 text-center">
-            Only @sapira.ai accounts are allowed for Google sign-in
-          </p>
-        )}
-      </div>
-    </div>
+          </div>
+        </motion.div>
+      </AuroraBackground>
+    }>
+      <SignInForm />
+    </Suspense>
   )
 }
