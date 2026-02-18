@@ -164,17 +164,19 @@ export default function Home() {
             </CardContent>
           </Card>
 
-          {/* Next Steps */}
+          {/* Dashboard CTA */}
           <Card className="border-primary/20 bg-primary/5">
             <CardHeader>
-              <CardTitle>Next: SAP-5 — Dashboard Home</CardTitle>
+              <CardTitle>Ready to Manage Your Agents</CardTitle>
               <CardDescription>
-                Agent cards with real-time status, token usage, and system health monitoring
+                View agent status, monitor token usage, and control your OpenClaw infrastructure
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <Button>
-                Ready to proceed →
+              <Button asChild size="lg">
+                <a href="/dashboard">
+                  Go to Dashboard →
+                </a>
               </Button>
             </CardContent>
           </Card>

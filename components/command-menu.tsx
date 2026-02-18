@@ -44,6 +44,10 @@ export function CommandMenu() {
         <CommandGroup heading="Navigation">
           <CommandItem onSelect={() => runCommand(() => router.push("/"))}>
             <Home className="mr-2 h-4 w-4" />
+            <span>Home</span>
+          </CommandItem>
+          <CommandItem onSelect={() => runCommand(() => router.push("/dashboard"))}>
+            <Users className="mr-2 h-4 w-4" />
             <span>Dashboard</span>
           </CommandItem>
           <CommandItem onSelect={() => runCommand(() => router.push("/agents"))}>

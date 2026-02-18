@@ -1,14 +1,41 @@
 import { NextResponse } from "next/server";
-import { gatewayHealth } from "@/lib/gateway";
+import { auth } from "@/lib/auth";
+import { gatewayCall } from "@/lib/gateway";
 
 export async function GET() {
   try {
-    const health = await gatewayHealth();
-    return NextResponse.json({ status: "ok", gateway: health });
+    // Check authentication
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    // Get gateway health
+    const healthData = await gatewayCall("health");
+    
+    // Parse health data into structured format
+    const health = {
+      status: healthData?.ok ? "healthy" : "degraded",
+      gateway: {
+        version: healthData?.version || "unknown",
+        uptime: healthData?.uptime || 0,
+      },
+      channels: healthData?.channels?.map((ch: any) => ({
+        name: ch.name || "unknown",
+        status: ch.connected ? "connected" : "disconnected",
+      })) || [],
+    };
+
+    return NextResponse.json(health);
   } catch (error) {
+    console.error("Health check failed:", error);
     return NextResponse.json(
-      { status: "error", message: "Gateway unavailable" },
-      { status: 502 }
+      {
+        status: "down",
+        gateway: { version: "unknown", uptime: 0 },
+        channels: [],
+      },
+      { status: 200 } // Return 200 with "down" status instead of 502
     );
   }
 }
