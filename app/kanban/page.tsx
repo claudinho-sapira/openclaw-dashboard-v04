@@ -1,219 +1,190 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { DragDropContext, Draggable, DropResult } from "@hello-pangea/dnd"
-import { Plus, Filter } from "lucide-react"
+import { motion, AnimatePresence } from "framer-motion"
+import { RefreshCw, Activity } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { KanbanColumn } from "@/components/kanban-column"
-import { TaskCard } from "@/components/task-card"
-import { TaskDialog } from "@/components/task-dialog"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 
-interface Task {
-  id: string
-  title: string
-  description?: string | null
-  status: string
-  agent: string
-  priority: string
-  labels: string
-  createdAt: string
-  updatedAt: string
+interface AgentActivity {
+  agentId: string
+  agentName: string
+  agentEmoji: string
+  status: "idle" | "working" | "waiting"
+  currentTask: string
+  lastUpdated: string
+  sessionKey: string
 }
 
-const COLUMNS = [
-  { id: "todo", title: "To Do", isHITL: false },
-  { id: "in-progress", title: "In Progress", isHITL: false },
-  { id: "hitl", title: "HITL", isHITL: true },
-  { id: "done", title: "Done", isHITL: false },
-]
+const POLLING_INTERVAL = 5000 // 5 seconds
+
+const statusConfig = {
+  idle: {
+    label: "Idle",
+    color: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-100",
+    badgeVariant: "secondary" as const,
+  },
+  working: {
+    label: "Working",
+    color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100",
+    badgeVariant: "default" as const,
+  },
+  waiting: {
+    label: "Waiting",
+    color: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100",
+    badgeVariant: "outline" as const,
+  },
+}
 
 export default function KanbanPage() {
-  const [tasks, setTasks] = useState<Task[]>([])
-  const [filteredAgent, setFilteredAgent] = useState("all")
-  const [filteredPriority, setFilteredPriority] = useState("all")
-  const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null)
+  const [activities, setActivities] = useState<AgentActivity[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
 
-  const fetchTasks = async () => {
+  const fetchActivities = async () => {
     try {
-      const params = new URLSearchParams()
-      if (filteredAgent !== "all") params.set("agent", filteredAgent)
-      if (filteredPriority !== "all") params.set("priority", filteredPriority)
-
-      const response = await fetch(`/api/kanban/tasks?${params}`)
-      if (response.ok) {
-        const data = await response.json()
-        setTasks(data.tasks || [])
+      const res = await fetch("/api/gateway/activity")
+      if (res.ok) {
+        const data = await res.json()
+        setActivities(data.activities || [])
+        setLastUpdate(new Date())
       }
     } catch (error) {
-      console.error("Failed to fetch tasks:", error)
+      console.error("Failed to fetch activities:", error)
+    } finally {
+      setIsLoading(false)
     }
   }
 
   useEffect(() => {
-    fetchTasks()
-  }, [filteredAgent, filteredPriority])
+    fetchActivities()
+    const interval = setInterval(fetchActivities, POLLING_INTERVAL)
+    return () => clearInterval(interval)
+  }, [])
 
-  const handleDragEnd = async (result: DropResult) => {
-    if (!result.destination) return
-
-    const { source, destination, draggableId } = result
-
-    if (source.droppableId === destination.droppableId) return
-
-    try {
-      await fetch(`/api/kanban/tasks/${draggableId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: destination.droppableId }),
-      })
-
-      fetchTasks()
-    } catch (error) {
-      console.error("Failed to update task:", error)
-    }
+  // Group activities by status
+  const grouped = {
+    idle: activities.filter((a) => a.status === "idle"),
+    working: activities.filter((a) => a.status === "working"),
+    waiting: activities.filter((a) => a.status === "waiting"),
   }
 
-  const handleCreateTask = async (taskData: Partial<Task>) => {
-    try {
-      await fetch("/api/kanban/tasks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(taskData),
-      })
-      fetchTasks()
-    } catch (error) {
-      console.error("Failed to create task:", error)
-    }
-  }
-
-  const handleUpdateTask = async (taskData: Partial<Task>) => {
-    if (!selectedTask) return
-
-    try {
-      await fetch(`/api/kanban/tasks/${selectedTask.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(taskData),
-      })
-      fetchTasks()
-    } catch (error) {
-      console.error("Failed to update task:", error)
-    }
-  }
-
-  const handleDeleteTask = async (id: string) => {
-    try {
-      await fetch(`/api/kanban/tasks/${id}`, {
-        method: "DELETE",
-      })
-      fetchTasks()
-    } catch (error) {
-      console.error("Failed to delete task:", error)
-    }
-  }
-
-  const getTasksByStatus = (status: string) => {
-    return tasks.filter((task) => task.status === status)
-  }
+  const columns = [
+    { key: "idle", title: "Idle", activities: grouped.idle },
+    { key: "working", title: "Working", activities: grouped.working },
+    { key: "waiting", title: "Waiting", activities: grouped.waiting },
+  ] as const
 
   return (
     <>
+      {/* Page Header */}
       <div className="border-b bg-muted/30">
         <div className="container mx-auto px-6 py-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-bold tracking-tight">Kanban Board</h1>
+              <h1 className="text-3xl font-bold tracking-tight">Agent Activity</h1>
               <p className="text-muted-foreground mt-1">
-                Visual task tracking with HITL support
+                Real-time view of what each agent is doing
               </p>
             </div>
-            <div className="flex items-center gap-3">
-              <Select value={filteredAgent} onValueChange={setFilteredAgent}>
-                <SelectTrigger className="w-[140px]">
-                  <Filter className="h-4 w-4 mr-2" />
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All agents</SelectItem>
-                  <SelectItem value="pm">Luna (PM)</SelectItem>
-                  <SelectItem value="builder">Bolt (Builder)</SelectItem>
-                  <SelectItem value="qa">Iris (QA)</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Select value={filteredPriority} onValueChange={setFilteredPriority}>
-                <SelectTrigger className="w-[140px]">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All priorities</SelectItem>
-                  <SelectItem value="urgent">Urgent</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="low">Low</SelectItem>
-                </SelectContent>
-              </Select>
-
-              <Button onClick={() => {
-                setSelectedTask(null)
-                setIsDialogOpen(true)
-              }}>
-                <Plus className="h-4 w-4 mr-2" />
-                New Task
+            <div className="flex items-center gap-4">
+              {lastUpdate && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Activity className="h-4 w-4 animate-pulse text-green-500" />
+                  <span>Live • Updated {lastUpdate.toLocaleTimeString()}</span>
+                </div>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={fetchActivities}
+                disabled={isLoading}
+              >
+                <RefreshCw
+                  className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`}
+                />
+                Refresh
               </Button>
             </div>
           </div>
         </div>
       </div>
 
-      <main className="container mx-auto px-6 py-8 overflow-x-auto">
-        <DragDropContext onDragEnd={handleDragEnd}>
-          <div className="flex gap-6 pb-4">
-            {COLUMNS.map((column) => {
-              const columnTasks = getTasksByStatus(column.id)
-              return (
-                <KanbanColumn
-                  key={column.id}
-                  id={column.id}
-                  title={column.title}
-                  count={columnTasks.length}
-                  isHITL={column.isHITL}
-                >
-                  {columnTasks.map((task, index) => (
-                    <Draggable key={task.id} draggableId={task.id} index={index}>
-                      {(provided) => (
-                        <div
-                          ref={provided.innerRef}
-                          {...provided.draggableProps}
-                          {...provided.dragHandleProps}
-                        >
-                          <TaskCard
-                            task={task}
-                            onClick={() => {
-                              setSelectedTask(task)
-                              setIsDialogOpen(true)
-                            }}
-                          />
-                        </div>
-                      )}
-                    </Draggable>
-                  ))}
-                </KanbanColumn>
-              )
-            })}
+      {/* Kanban Board */}
+      <main className="container mx-auto px-6 py-8">
+        {isLoading && activities.length === 0 ? (
+          <div className="grid md:grid-cols-3 gap-6">
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="h-96 rounded-lg border bg-card animate-pulse"
+              />
+            ))}
           </div>
-        </DragDropContext>
-      </main>
+        ) : (
+          <div className="grid md:grid-cols-3 gap-6">
+            {columns.map((column) => (
+              <div key={column.key} className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">{column.title}</h2>
+                  <Badge variant={statusConfig[column.key].badgeVariant}>
+                    {column.activities.length}
+                  </Badge>
+                </div>
 
-      <TaskDialog
-        open={isDialogOpen}
-        onOpenChange={setIsDialogOpen}
-        task={selectedTask}
-        onSave={selectedTask ? handleUpdateTask : handleCreateTask}
-        onDelete={selectedTask ? handleDeleteTask : undefined}
-      />
+                <div className="space-y-3 min-h-[400px]">
+                  <AnimatePresence mode="popLayout">
+                    {column.activities.map((activity) => (
+                      <motion.div
+                        key={activity.agentId}
+                        layout
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.9 }}
+                        transition={{ duration: 0.2 }}
+                      >
+                        <Card className="hover:shadow-md transition-shadow">
+                          <CardHeader className="pb-3">
+                            <div className="flex items-center gap-3">
+                              <span className="text-3xl">{activity.agentEmoji}</span>
+                              <div className="flex-1">
+                                <CardTitle className="text-base">
+                                  {activity.agentName}
+                                </CardTitle>
+                                <p className="text-xs text-muted-foreground">
+                                  {new Date(activity.lastUpdated).toLocaleTimeString()}
+                                </p>
+                              </div>
+                              <Badge
+                                variant={statusConfig[activity.status].badgeVariant}
+                                className="text-xs"
+                              >
+                                {statusConfig[activity.status].label}
+                              </Badge>
+                            </div>
+                          </CardHeader>
+                          <CardContent>
+                            <p className="text-sm text-muted-foreground line-clamp-3">
+                              {activity.currentTask}
+                            </p>
+                          </CardContent>
+                        </Card>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+
+                  {column.activities.length === 0 && (
+                    <div className="text-center py-12 text-muted-foreground">
+                      No agents in this state
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
     </>
   )
 }
