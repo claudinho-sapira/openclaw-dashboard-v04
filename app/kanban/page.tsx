@@ -318,32 +318,262 @@ export default function KanbanPage() {
             )}
           </TabsContent>
 
-          {/* SAP-27: Agent Detail (will update next) */}
+          {/* SAP-27: Agent Detail Clean */}
           <TabsContent value="agent-detail" className="space-y-4">
             {!selectedAgent ? (
               <Card>
                 <CardHeader>
                   <CardTitle>Agent Detail</CardTitle>
+                  <CardDescription>Select an agent from the Kanban board to view their current task</CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <p className="text-muted-foreground">Click an agent card to view detailed information.</p>
+                <CardContent className="py-12">
+                  <div className="text-center text-muted-foreground">
+                    <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                    <p>No agent selected</p>
+                  </div>
                 </CardContent>
               </Card>
             ) : (
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center gap-4">
-                    <span className="text-5xl">{selectedAgent.agentEmoji}</span>
-                    <div>
-                      <CardTitle className="text-2xl">{selectedAgent.agentName}</CardTitle>
-                      <p className="text-sm text-muted-foreground">Agent ID: {selectedAgent.agentId}</p>
+              <>
+                {/* Agent Header */}
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <span className="text-5xl">{selectedAgent.agentEmoji}</span>
+                        <div>
+                          <CardTitle className="text-2xl">{selectedAgent.agentName}</CardTitle>
+                          <p className="text-sm text-muted-foreground capitalize">
+                            {selectedAgent.agentId} Agent
+                          </p>
+                        </div>
+                      </div>
+                      <Badge 
+                        variant={selectedAgent.status === "active" ? "default" : "secondary"}
+                        className="text-sm"
+                      >
+                        {selectedAgent.status === "active" ? "🟢 Active" : 
+                         selectedAgent.status === "idle" ? "⚪ Idle" : "🟡 Waiting"}
+                      </Badge>
                     </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-muted-foreground">Agent detail view will be updated in SAP-27</p>
-                </CardContent>
-              </Card>
+                  </CardHeader>
+                </Card>
+
+                {/* Current Task */}
+                {(() => {
+                  const currentTask = issues.find(
+                    issue => issue.assigneeId === selectedAgent.agentId && issue.column === "in-progress"
+                  )
+                  
+                  if (currentTask) {
+                    const startedTime = new Date(currentTask.updatedAt)
+                    const now = new Date()
+                    const diffMs = now.getTime() - startedTime.getTime()
+                    const diffMins = Math.floor(diffMs / 60000)
+                    const diffHours = Math.floor(diffMins / 60)
+                    const diffDays = Math.floor(diffHours / 24)
+                    
+                    let timeWorking = ""
+                    if (diffDays > 0) timeWorking = `${diffDays}d ${diffHours % 24}h`
+                    else if (diffHours > 0) timeWorking = `${diffHours}h ${diffMins % 60}m`
+                    else timeWorking = `${diffMins}m`
+
+                    return (
+                      <Card>
+                        <CardHeader>
+                          <div className="flex items-center justify-between">
+                            <CardTitle className="text-lg">Current Task</CardTitle>
+                            <Badge variant="default" className="animate-pulse">
+                              In Progress
+                            </Badge>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <div>
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="text-xs font-mono text-muted-foreground">
+                                {currentTask.identifier}
+                              </span>
+                              {currentTask.isNext && (
+                                <Badge variant="secondary" className="text-xs">
+                                  NEXT 🔜
+                                </Badge>
+                              )}
+                            </div>
+                            <h3 className="text-xl font-semibold mb-2">{currentTask.title}</h3>
+                            {currentTask.description && (
+                              <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                                {currentTask.description}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-4 pt-4 border-t">
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-1">Priority</p>
+                              <div className={`flex items-center gap-1 text-sm font-medium ${getPriorityColor(currentTask.priority)}`}>
+                                {getPriorityIcon(currentTask.priority)}
+                                <span>{currentTask.priorityLabel}</span>
+                              </div>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-1">Time Working</p>
+                              <p className="text-sm font-medium">{timeWorking}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground mb-1">Status</p>
+                              <p className="text-sm font-medium">{currentTask.state}</p>
+                            </div>
+                          </div>
+
+                          {currentTask.labels.length > 0 && (
+                            <div className="pt-4 border-t">
+                              <p className="text-xs text-muted-foreground mb-2">Labels</p>
+                              <div className="flex flex-wrap gap-2">
+                                {currentTask.labels.map(label => (
+                                  <Badge key={label.id} variant="secondary">
+                                    {label.name}
+                                  </Badge>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="pt-4">
+                            <Button asChild className="w-full">
+                              <a href={currentTask.url} target="_blank" rel="noopener noreferrer">
+                                Open in Linear
+                                <ExternalLink className="h-4 w-4 ml-2" />
+                              </a>
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )
+                  } else {
+                    // No current task - show next task or idle state
+                    const nextTask = issues.find(
+                      issue => issue.assigneeId === selectedAgent.agentId && issue.column === "backlog"
+                    )
+
+                    if (nextTask) {
+                      return (
+                        <Card>
+                          <CardHeader>
+                            <div className="flex items-center justify-between">
+                              <CardTitle className="text-lg">Next Task</CardTitle>
+                              <Badge variant="outline">Queued</Badge>
+                            </div>
+                          </CardHeader>
+                          <CardContent className="space-y-4">
+                            <div>
+                              <div className="flex items-center gap-2 mb-2">
+                                <span className="text-xs font-mono text-muted-foreground">
+                                  {nextTask.identifier}
+                                </span>
+                                {nextTask.isNext && (
+                                  <Badge variant="default" className="text-xs">
+                                    NEXT 🔜
+                                  </Badge>
+                                )}
+                              </div>
+                              <h3 className="text-xl font-semibold mb-2">{nextTask.title}</h3>
+                              {nextTask.description && (
+                                <p className="text-sm text-muted-foreground line-clamp-3">
+                                  {nextTask.description}
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4 pt-4 border-t">
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-1">Priority</p>
+                                <div className={`flex items-center gap-1 text-sm font-medium ${getPriorityColor(nextTask.priority)}`}>
+                                  {getPriorityIcon(nextTask.priority)}
+                                  <span>{nextTask.priorityLabel}</span>
+                                </div>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground mb-1">Status</p>
+                                <p className="text-sm font-medium">{nextTask.state}</p>
+                              </div>
+                            </div>
+
+                            <div className="pt-4">
+                              <Button asChild variant="outline" className="w-full">
+                                <a href={nextTask.url} target="_blank" rel="noopener noreferrer">
+                                  View in Linear
+                                  <ArrowRight className="h-4 w-4 ml-2" />
+                                </a>
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      )
+                    } else {
+                      // Idle - no tasks
+                      return (
+                        <Card>
+                          <CardHeader>
+                            <CardTitle className="text-lg">Status</CardTitle>
+                          </CardHeader>
+                          <CardContent className="py-12">
+                            <div className="text-center">
+                              <div className="text-6xl mb-4">☕</div>
+                              <h3 className="text-xl font-semibold mb-2">All Clear</h3>
+                              <p className="text-muted-foreground">
+                                No tasks assigned to {selectedAgent.agentName}
+                              </p>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      )
+                    }
+                  }
+                })()}
+
+                {/* Completed Tasks Summary */}
+                {(() => {
+                  const completedTasks = issues.filter(
+                    issue => issue.assigneeId === selectedAgent.agentId && issue.column === "done"
+                  )
+                  
+                  if (completedTasks.length > 0) {
+                    return (
+                      <Card>
+                        <CardHeader>
+                          <CardTitle className="text-lg">Recent Completions</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-2">
+                            {completedTasks.slice(0, 3).map((task) => (
+                              <div 
+                                key={task.id}
+                                className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors cursor-pointer"
+                                onClick={() => openIssueModal(task)}
+                              >
+                                <div className="flex-1">
+                                  <p className="text-sm font-medium line-clamp-1">{task.title}</p>
+                                  <p className="text-xs text-muted-foreground">{task.identifier}</p>
+                                </div>
+                                <Badge variant="secondary" className="ml-2">
+                                  ✓ Done
+                                </Badge>
+                              </div>
+                            ))}
+                          </div>
+                          {completedTasks.length > 3 && (
+                            <p className="text-xs text-muted-foreground text-center mt-4">
+                              +{completedTasks.length - 3} more completed
+                            </p>
+                          )}
+                        </CardContent>
+                      </Card>
+                    )
+                  }
+                  return null
+                })()}
+              </>
             )}
           </TabsContent>
         </Tabs>
