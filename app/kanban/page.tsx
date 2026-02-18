@@ -89,10 +89,12 @@ export default function KanbanPage() {
     try {
       // Fetch issue assignments from local DB
       const assignmentsRes = await fetch("/api/issue-assignments")
+      let currentAssignments: Record<string, string> = {}
       if (assignmentsRes.ok) {
         const { assignments } = await assignmentsRes.json()
-        setIssueAssignments(assignments || {})
-        console.log("[Kanban] Loaded", Object.keys(assignments || {}).length, "issue assignments")
+        currentAssignments = assignments || {}
+        setIssueAssignments(currentAssignments)
+        console.log("[Kanban] Loaded", Object.keys(currentAssignments).length, "issue assignments")
       }
 
       // Fetch Linear issues
@@ -107,7 +109,59 @@ export default function KanbanPage() {
         if (data.cached) {
           console.log("[Kanban] Data from cache:", data.cacheInfo)
         }
-        setIssues(data.issues || [])
+        const fetchedIssues = data.issues || []
+        setIssues(fetchedIssues)
+
+        // AUTO-INITIALIZE: Create assignments for issues with labels but no assignment
+        const labelToAgent: Record<string, string> = {
+          "bolt": "builder",
+          "builder": "builder",
+          "iris": "qa",
+          "qa": "qa",
+          "luna": "pm",
+          "pm": "pm",
+        }
+
+        let autoInitialized = 0
+        for (const issue of fetchedIssues) {
+          // Skip if already has assignment
+          if (currentAssignments[issue.id]) continue
+
+          // Check labels for agent
+          const labelNames = issue.labels.map((l: any) => l.name.toLowerCase())
+          let agentName: string | null = null
+
+          for (const labelName of labelNames) {
+            if (labelToAgent[labelName]) {
+              agentName = labelToAgent[labelName]
+              break
+            }
+          }
+
+          // Create assignment if agent found
+          if (agentName) {
+            try {
+              const res = await fetch("/api/issue-assignments", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ issueId: issue.id, agentName }),
+              })
+
+              if (res.ok) {
+                currentAssignments[issue.id] = agentName
+                autoInitialized++
+                console.log(`[Kanban] Auto-assigned ${issue.identifier} → ${agentName}`)
+              }
+            } catch (error) {
+              console.error(`[Kanban] Failed to auto-assign ${issue.identifier}:`, error)
+            }
+          }
+        }
+
+        if (autoInitialized > 0) {
+          setIssueAssignments({ ...currentAssignments })
+          console.log(`[Kanban] ✅ Auto-initialized ${autoInitialized} assignments from labels`)
+        }
       } else if (issuesRes.status === 429 || issuesRes.status === 503) {
         // Rate limit or service unavailable - retry with exponential backoff
         const errorData = await issuesRes.json().catch(() => ({}))
