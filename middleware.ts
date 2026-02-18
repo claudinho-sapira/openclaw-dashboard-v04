@@ -30,10 +30,12 @@ export const config = {
   matcher: [
     /*
      * Match all paths except:
-     * - /api/auth/* (NextAuth routes)
+     * - /api/* (all API routes)
+     * - /auth/* (auth pages - signin, error)
      * - /_next/* (Next.js internals)
      * - /favicon.ico, /sitemap.xml, /robots.txt (static files)
+     * - Static assets (images, fonts, etc.)
      */
-    "/((?!api/auth|_next|favicon.ico|sitemap.xml|robots.txt).*)",
+    "/((?!api|auth|_next|_static|_vercel|favicon.ico|sitemap.xml|robots.txt|.*\\..*).*)",
   ],
 }
