@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog"
-import { RefreshCw, Activity, ArrowRight, ExternalLink, Clock, AlertCircle, Zap } from "lucide-react"
+import { RefreshCw, Activity, ArrowRight, ExternalLink, Clock, AlertCircle, Zap, Plus } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 
 // Types
@@ -66,6 +66,21 @@ export default function KanbanPage() {
   const [agentFilter, setAgentFilter] = useState<string>("all")
   const [selectedIssue, setSelectedIssue] = useState<LinearIssue | null>(null)
   const [issueModalOpen, setIssueModalOpen] = useState(false)
+  const [backlogFilter, setBacklogFilter] = useState<"all" | "linear" | "config" | "manual">("all")
+  const [newTaskOpen, setNewTaskOpen] = useState(false)
+  const [newTaskDescription, setNewTaskDescription] = useState("")
+  const [newTaskAgent, setNewTaskAgent] = useState<string>("")
+  const [manualTasks, setManualTasks] = useState<Array<{
+    id: string
+    description: string
+    assignedAgent: string | null
+    createdAt: string
+  }>>([])
+  const [heartbeatTasks, setHeartbeatTasks] = useState<Array<{
+    id: string
+    description: string
+    agent: string
+  }>>([])
 
   const fetchKanbanData = async () => {
     try {
@@ -90,6 +105,37 @@ export default function KanbanPage() {
           sessions: [],
         }))
         setAgents(agentStatuses)
+
+        // Parse HEARTBEAT.md for each agent
+        const heartbeatTasksTemp: typeof heartbeatTasks = []
+        for (const agent of agentStatuses) {
+          try {
+            const heartbeatRes = await fetch(
+              `${process.env.NEXT_PUBLIC_WORKSPACE_SERVER_URL}/workspace/${agent.agentId}/files/HEARTBEAT.md`
+            )
+            if (heartbeatRes.ok) {
+              const content = await heartbeatRes.text()
+              const lines = content.split('\n').filter(line => 
+                line.trim() && 
+                !line.trim().startsWith('#') && 
+                !line.trim().startsWith('//') &&
+                line.trim() !== ''
+              )
+              lines.forEach((line, idx) => {
+                if (line.trim()) {
+                  heartbeatTasksTemp.push({
+                    id: `heartbeat-${agent.agentId}-${idx}`,
+                    description: line.trim().replace(/^[-*]\s*/, ''),
+                    agent: agent.agentId,
+                  })
+                }
+              })
+            }
+          } catch (err) {
+            console.log(`No HEARTBEAT.md for ${agent.agentId}`)
+          }
+        }
+        setHeartbeatTasks(heartbeatTasksTemp)
       }
 
       setLastUpdate(new Date())
@@ -128,6 +174,27 @@ export default function KanbanPage() {
   const openIssueModal = (issue: LinearIssue) => {
     setSelectedIssue(issue)
     setIssueModalOpen(true)
+  }
+
+  const createManualTask = () => {
+    if (!newTaskDescription.trim()) return
+
+    const task = {
+      id: `manual-${Date.now()}`,
+      description: newTaskDescription,
+      assignedAgent: newTaskAgent || null,
+      createdAt: new Date().toISOString(),
+    }
+
+    setManualTasks([...manualTasks, task])
+    setNewTaskDescription("")
+    setNewTaskAgent("")
+    setNewTaskOpen(false)
+
+    // TODO: Send to agent via sessions_send if assigned
+    if (newTaskAgent) {
+      console.log(`TODO: Send task to ${newTaskAgent} via sessions_send`)
+    }
   }
 
   const getPriorityColor = (priority: number) => {
@@ -192,8 +259,9 @@ export default function KanbanPage() {
       {/* Main Content */}
       <main className="container mx-auto px-6 py-8">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2">
+          <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="kanban">Kanban Board</TabsTrigger>
+            <TabsTrigger value="backlog">Backlog</TabsTrigger>
             <TabsTrigger value="agent-detail">Agent Detail</TabsTrigger>
           </TabsList>
 
