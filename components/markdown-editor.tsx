@@ -6,7 +6,8 @@ import remarkGfm from "remark-gfm"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Save, RotateCcw, Eye, Edit3 } from "lucide-react"
+import { Save, RotateCcw, Eye, Edit3, Layout } from "lucide-react"
+import { VisualFileEditor } from "@/components/visual-file-editor"
 
 interface MarkdownEditorProps {
   value: string
@@ -25,7 +26,7 @@ export function MarkdownEditor({
   hasChanges,
   filename,
 }: MarkdownEditorProps) {
-  const [mode, setMode] = useState<"edit" | "preview">("edit")
+  const [mode, setMode] = useState<"visual" | "edit" | "preview">("visual")
 
   return (
     <div className="space-y-4">
@@ -41,7 +42,11 @@ export function MarkdownEditor({
         </div>
         <div className="flex items-center gap-2">
           <Tabs value={mode} onValueChange={(v) => setMode(v as any)} className="w-auto">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="visual" className="text-xs">
+                <Layout className="h-3 w-3 mr-1" />
+                Visual
+              </TabsTrigger>
               <TabsTrigger value="edit" className="text-xs">
                 <Edit3 className="h-3 w-3 mr-1" />
                 Edit
@@ -63,8 +68,16 @@ export function MarkdownEditor({
         </div>
       </div>
 
-      {/* Editor / Preview */}
-      {mode === "edit" ? (
+      {/* Visual / Editor / Preview */}
+      {mode === "visual" ? (
+        <div className="min-h-[500px]">
+          <VisualFileEditor
+            filename={filename}
+            content={value}
+            onChange={onChange}
+          />
+        </div>
+      ) : mode === "edit" ? (
         <textarea
           value={value}
           onChange={(e) => onChange(e.target.value)}

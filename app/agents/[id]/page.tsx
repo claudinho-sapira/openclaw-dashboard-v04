@@ -44,6 +44,8 @@ export default function AgentDetailPage() {
   
   const [agent, setAgent] = useState<AgentStatus | null>(null)
   const [config, setConfig] = useState<any>(null)
+  const [originalConfig, setOriginalConfig] = useState<any>(null)
+  const [isSavingConfig, setIsSavingConfig] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [selectedModel, setSelectedModel] = useState<string>("")
   const [isChangingModel, setIsChangingModel] = useState(false)
@@ -79,6 +81,7 @@ export default function AgentDetailPage() {
         if (configRes.ok) {
           const configData = await configRes.json()
           setConfig(configData)
+          setOriginalConfig(configData)
         }
 
         if (filesRes.ok) {
@@ -150,6 +153,33 @@ export default function AgentDetailPage() {
       console.error("Failed to save file:", error)
     } finally {
       setIsSavingFile(false)
+    }
+  }
+
+  const handleSaveConfig = async () => {
+    if (!agentId || !config) return
+
+    setIsSavingConfig(true)
+    try {
+      const response = await fetch(`/api/agents/${agentId}/config`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config }),
+      })
+
+      if (response.ok) {
+        setOriginalConfig(config)
+      }
+    } catch (error) {
+      console.error("Failed to save config:", error)
+    } finally {
+      setIsSavingConfig(false)
+    }
+  }
+
+  const handleResetConfig = () => {
+    if (originalConfig) {
+      setConfig(originalConfig)
     }
   }
 
@@ -354,8 +384,20 @@ export default function AgentDetailPage() {
                           onChange={(newConfig) => setConfig(newConfig)}
                         />
                         <div className="flex gap-2">
-                          <Button size="sm">Save Changes</Button>
-                          <Button size="sm" variant="outline">Reset</Button>
+                          <Button 
+                            size="sm" 
+                            onClick={handleSaveConfig}
+                            disabled={isSavingConfig}
+                          >
+                            {isSavingConfig ? "Saving..." : "Save Changes"}
+                          </Button>
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={handleResetConfig}
+                          >
+                            Reset
+                          </Button>
                         </div>
                       </div>
                     ) : (
