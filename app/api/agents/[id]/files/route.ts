@@ -1,23 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import fs from "fs/promises";
-import path from "path";
 
-const WORKSPACE_PATHS: Record<string, string> = {
-  pm: "/Users/claudinho/.openclaw/workspace-pm",
-  builder: "/Users/claudinho/.openclaw/workspace-builder",
-  qa: "/Users/claudinho/.openclaw/workspace-qa",
-};
-
-const WORKSPACE_FILES = [
-  "SOUL.md",
-  "TOOLS.md",
-  "AGENTS.md",
-  "USER.md",
-  "IDENTITY.md",
-  "BOOTSTRAP.md",
-  "HEARTBEAT.md",
-];
+const WORKSPACE_SERVER_URL = process.env.NEXT_PUBLIC_WORKSPACE_SERVER_URL || process.env.WORKSPACE_SERVER_URL;
 
 export async function GET(
   request: NextRequest,
@@ -30,39 +14,25 @@ export async function GET(
     }
 
     const { id } = await params;
-    
-    const workspacePath = WORKSPACE_PATHS[id];
 
-    if (!workspacePath) {
-      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+    if (!WORKSPACE_SERVER_URL) {
+      return NextResponse.json(
+        { error: "Workspace server not configured" },
+        { status: 503 }
+      );
     }
 
-    // List all workspace files with metadata
-    const files = await Promise.all(
-      WORKSPACE_FILES.map(async (filename) => {
-        const filePath = path.join(workspacePath, filename);
-        try {
-          const stats = await fs.stat(filePath);
-          return {
-            name: filename,
-            path: filename,
-            size: stats.size,
-            modified: stats.mtime.toISOString(),
-            exists: true,
-          };
-        } catch (error) {
-          return {
-            name: filename,
-            path: filename,
-            size: 0,
-            modified: new Date().toISOString(),
-            exists: false,
-          };
-        }
-      })
-    );
+    // Fetch files from workspace server
+    const response = await fetch(`${WORKSPACE_SERVER_URL}/workspace/${id}/files`, {
+      cache: "no-store",
+    });
 
-    return NextResponse.json({ files });
+    if (!response.ok) {
+      throw new Error(`Workspace server error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return NextResponse.json(data);
   } catch (error) {
     console.error("Failed to list workspace files:", error);
     return NextResponse.json(
