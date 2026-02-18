@@ -8,12 +8,19 @@ export default auth((req) => {
   // Public paths that don't require auth
   const publicPaths = [
     "/",
-    "/auth/signin",
-    "/auth/error",
   ]
 
+  // Check if path is API or auth route (always allow)
+  const isApiRoute = pathname.startsWith("/api")
+  const isAuthRoute = pathname.startsWith("/auth")
+  
   // Check if current path is public
-  const isPublicPath = publicPaths.some(path => pathname === path || pathname.startsWith(path))
+  const isPublicPath = publicPaths.includes(pathname)
+
+  // Allow API and auth routes
+  if (isApiRoute || isAuthRoute) {
+    return NextResponse.next()
+  }
 
   // Redirect to login if not authenticated and trying to access protected route
   if (!isLoggedIn && !isPublicPath) {
@@ -30,12 +37,10 @@ export const config = {
   matcher: [
     /*
      * Match all paths except:
-     * - /api/* (all API routes)
-     * - /auth/* (auth pages - signin, error)
      * - /_next/* (Next.js internals)
      * - /favicon.ico, /sitemap.xml, /robots.txt (static files)
      * - Static assets (images, fonts, etc.)
      */
-    "/((?!api|auth|_next|_static|_vercel|favicon.ico|sitemap.xml|robots.txt|.*\\..*).*)",
+    "/((?!_next|_static|_vercel|favicon.ico|sitemap.xml|robots.txt|.*\\..*).*)",
   ],
 }

@@ -2,10 +2,12 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { LayoutDashboard, Users, Kanban, Settings } from "lucide-react"
+import { LayoutDashboard, Users, Kanban, Settings, LogOut } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { KeyboardShortcutHint } from "@/components/keyboard-shortcut-hint"
+import { signOut } from "next-auth/react"
+import { Button } from "@/components/ui/button"
 
 const navItems = [
   {
@@ -75,6 +77,15 @@ export function Nav() {
           <div className="flex items-center gap-4">
             <KeyboardShortcutHint />
             <ThemeToggle />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => signOut({ callbackUrl: "/auth/signin" })}
+              className="flex items-center gap-2"
+            >
+              <LogOut className="h-4 w-4" />
+              <span className="hidden sm:inline-block">Logout</span>
+            </Button>
           </div>
         </div>
       </div>
