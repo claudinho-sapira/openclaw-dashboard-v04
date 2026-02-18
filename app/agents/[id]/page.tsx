@@ -10,7 +10,24 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { JsonEditor } from "@/components/json-editor"
+import { FileBrowser } from "@/components/file-browser"
+import { MarkdownEditor } from "@/components/markdown-editor"
 import { AgentStatus } from "@/lib/types"
+
+interface WorkspaceFile {
+  name: string
+  path: string
+  size: number
+  modified: string
+  exists: boolean
+}
+
+interface FileContent {
+  name: string
+  content: string
+  size: number
+  modified: string
+}
 
 const AVAILABLE_MODELS = [
   { value: "anthropic/claude-sonnet-4-5", label: "Claude Sonnet 4.5" },
@@ -28,15 +45,24 @@ export default function AgentDetailPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [selectedModel, setSelectedModel] = useState<string>("")
   const [isChangingModel, setIsChangingModel] = useState(false)
+  
+  // Workspace files state
+  const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[]>([])
+  const [selectedFile, setSelectedFile] = useState<string | null>(null)
+  const [fileContent, setFileContent] = useState<FileContent | null>(null)
+  const [editedContent, setEditedContent] = useState<string>("")
+  const [isSavingFile, setIsSavingFile] = useState(false)
+  const [hasFileChanges, setHasFileChanges] = useState(false)
 
   useEffect(() => {
     if (!agentId) return
 
     const fetchData = async () => {
       try {
-        const [agentRes, configRes] = await Promise.all([
+        const [agentRes, configRes, filesRes] = await Promise.all([
           fetch("/api/agents"),
           fetch(`/api/agents/${agentId}/config`),
+          fetch(`/api/agents/${agentId}/files`),
         ])
 
         if (agentRes.ok) {
@@ -52,6 +78,11 @@ export default function AgentDetailPage() {
           const configData = await configRes.json()
           setConfig(configData)
         }
+
+        if (filesRes.ok) {
+          const filesData = await filesRes.json()
+          setWorkspaceFiles(filesData.files || [])
+        }
       } catch (error) {
         console.error("Failed to fetch agent data:", error)
       } finally {
@@ -61,6 +92,64 @@ export default function AgentDetailPage() {
 
     fetchData()
   }, [agentId])
+
+  const handleSelectFile = async (filePath: string) => {
+    if (!agentId) return
+
+    setSelectedFile(filePath)
+    
+    try {
+      const response = await fetch(`/api/agents/${agentId}/files/${filePath}`)
+      if (response.ok) {
+        const data = await response.json()
+        setFileContent(data)
+        setEditedContent(data.content)
+        setHasFileChanges(false)
+      }
+    } catch (error) {
+      console.error("Failed to load file:", error)
+    }
+  }
+
+  const handleFileContentChange = (newContent: string) => {
+    setEditedContent(newContent)
+    setHasFileChanges(newContent !== fileContent?.content)
+  }
+
+  const handleSaveFile = async () => {
+    if (!agentId || !selectedFile || !hasFileChanges) return
+
+    setIsSavingFile(true)
+    try {
+      const response = await fetch(`/api/agents/${agentId}/files/${selectedFile}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: editedContent }),
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setFileContent({
+          name: data.name,
+          content: editedContent,
+          size: data.size,
+          modified: data.modified,
+        })
+        setHasFileChanges(false)
+        
+        // Refresh file list
+        const filesRes = await fetch(`/api/agents/${agentId}/files`)
+        if (filesRes.ok) {
+          const filesData = await filesRes.json()
+          setWorkspaceFiles(filesData.files || [])
+        }
+      }
+    } catch (error) {
+      console.error("Failed to save file:", error)
+    } finally {
+      setIsSavingFile(false)
+    }
+  }
 
   const handleModelChange = async (newModel: string) => {
     if (!agentId || isChangingModel) return
@@ -277,19 +366,40 @@ export default function AgentDetailPage() {
           </TabsContent>
 
           <TabsContent value="files">
-            <Card>
-              <CardHeader>
-                <CardTitle>Workspace Files</CardTitle>
-                <CardDescription>
-                  SAP-7: File editor coming next
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <p className="text-muted-foreground">
-                  Edit SOUL.md, TOOLS.md, AGENTS.md, and other workspace files...
-                </p>
-              </CardContent>
-            </Card>
+            <div className="grid md:grid-cols-[300px_1fr] gap-6">
+              {/* File Browser */}
+              <div>
+                <h3 className="text-sm font-medium mb-3">Workspace Files</h3>
+                <FileBrowser
+                  files={workspaceFiles}
+                  selectedFile={selectedFile}
+                  onSelectFile={handleSelectFile}
+                />
+              </div>
+
+              {/* File Editor */}
+              <div>
+                {selectedFile && fileContent ? (
+                  <MarkdownEditor
+                    value={editedContent}
+                    onChange={handleFileContentChange}
+                    onSave={handleSaveFile}
+                    isSaving={isSavingFile}
+                    hasChanges={hasFileChanges}
+                    filename={fileContent.name}
+                  />
+                ) : (
+                  <Card>
+                    <CardContent className="py-12 text-center">
+                      <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                      <p className="text-muted-foreground">
+                        Select a file from the list to edit
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </div>
           </TabsContent>
 
           <TabsContent value="logs">
