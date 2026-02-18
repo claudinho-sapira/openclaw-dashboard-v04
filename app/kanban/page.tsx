@@ -5,7 +5,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { RefreshCw, Activity, Users, CheckCircle2, Clock } from "lucide-react"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
+import { RefreshCw, Activity, Users, CheckCircle2, Clock, Plus, Filter } from "lucide-react"
 import { motion } from "framer-motion"
 
 // Types
@@ -35,6 +39,15 @@ interface QuickStats {
   completedToday: number
 }
 
+interface BacklogTask {
+  id: string
+  source: "config" | "message" | "manual"
+  description: string
+  assignedAgent: string | null
+  status: "pending" | "assigned" | "in-progress"
+  createdAt: string
+}
+
 const POLLING_INTERVAL = 15000 // 15 seconds
 
 export default function KanbanPage() {
@@ -46,6 +59,12 @@ export default function KanbanPage() {
   const [selectedAgent, setSelectedAgent] = useState<AgentStatus | null>(null)
   const [agentSessions, setAgentSessions] = useState<AgentSession[]>([])
   const [loadingSessions, setLoadingSessions] = useState(false)
+  const [backlogTasks, setBacklogTasks] = useState<BacklogTask[]>([])
+  const [taskFilter, setTaskFilter] = useState<string>("all")
+  const [agentFilter, setAgentFilter] = useState<string>("all")
+  const [newTaskOpen, setNewTaskOpen] = useState(false)
+  const [newTaskDescription, setNewTaskDescription] = useState("")
+  const [newTaskAgent, setNewTaskAgent] = useState<string>("")
 
   const fetchAgentData = async () => {
     try {
@@ -115,6 +134,45 @@ export default function KanbanPage() {
       setLoadingSessions(false)
     }
   }
+
+  const createManualTask = () => {
+    if (!newTaskDescription.trim()) return
+
+    const task: BacklogTask = {
+      id: Date.now().toString(),
+      source: "manual",
+      description: newTaskDescription,
+      assignedAgent: newTaskAgent || null,
+      status: newTaskAgent ? "assigned" : "pending",
+      createdAt: new Date().toISOString(),
+    }
+
+    setBacklogTasks([...backlogTasks, task])
+    setNewTaskDescription("")
+    setNewTaskAgent("")
+    setNewTaskOpen(false)
+
+    // TODO: Send to agent via sessions_send if assigned
+    if (newTaskAgent) {
+      console.log(`TODO: Send task to ${newTaskAgent} via sessions_send`)
+    }
+  }
+
+  const assignTask = (taskId: string, agentId: string) => {
+    setBacklogTasks(backlogTasks.map(task => 
+      task.id === taskId 
+        ? { ...task, assignedAgent: agentId, status: "assigned" }
+        : task
+    ))
+    // TODO: Call sessions_send to notify agent
+    console.log(`TODO: Assign task ${taskId} to ${agentId} via sessions_send`)
+  }
+
+  const filteredTasks = backlogTasks.filter(task => {
+    if (taskFilter !== "all" && task.source !== taskFilter) return false
+    if (agentFilter !== "all" && task.assignedAgent !== agentFilter) return false
+    return true
+  })
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -403,14 +461,171 @@ export default function KanbanPage() {
             )}
           </TabsContent>
 
-          {/* SAP-24: Backlog (placeholder) */}
-          <TabsContent value="backlog">
+          {/* SAP-24: Backlog */}
+          <TabsContent value="backlog" className="space-y-4">
+            {/* Header with filters */}
             <Card>
               <CardHeader>
-                <CardTitle>Task Backlog</CardTitle>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Task Backlog</CardTitle>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Unified view from config files, sessions, and manual input
+                    </p>
+                  </div>
+                  <Dialog open={newTaskOpen} onOpenChange={setNewTaskOpen}>
+                    <DialogTrigger asChild>
+                      <Button>
+                        <Plus className="h-4 w-4 mr-2" />
+                        New Task
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Create Manual Task</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="task-description">Task Description</Label>
+                          <Input
+                            id="task-description"
+                            placeholder="What needs to be done?"
+                            value={newTaskDescription}
+                            onChange={(e) => setNewTaskDescription(e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="task-agent">Assign to Agent (optional)</Label>
+                          <Select value={newTaskAgent} onValueChange={setNewTaskAgent}>
+                            <SelectTrigger id="task-agent">
+                              <SelectValue placeholder="Select agent" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="">Unassigned</SelectItem>
+                              {agents.map(agent => (
+                                <SelectItem key={agent.agentId} value={agent.agentId}>
+                                  {agent.agentEmoji} {agent.agentName}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <DialogFooter>
+                        <Button variant="outline" onClick={() => setNewTaskOpen(false)}>
+                          Cancel
+                        </Button>
+                        <Button onClick={createManualTask}>
+                          Create Task
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
+                </div>
               </CardHeader>
               <CardContent>
-                <p className="text-muted-foreground">Unified view of all pending tasks from config files, sessions, and manual input.</p>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <Filter className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm text-muted-foreground">Filters:</span>
+                  </div>
+                  <Select value={taskFilter} onValueChange={setTaskFilter}>
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="Source" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Sources</SelectItem>
+                      <SelectItem value="config">Config Files</SelectItem>
+                      <SelectItem value="message">Sessions</SelectItem>
+                      <SelectItem value="manual">Manual</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={agentFilter} onValueChange={setAgentFilter}>
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="Agent" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Agents</SelectItem>
+                      {agents.map(agent => (
+                        <SelectItem key={agent.agentId} value={agent.agentId}>
+                          {agent.agentEmoji} {agent.agentName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Tasks List */}
+            <Card>
+              <CardContent className="pt-6">
+                {filteredTasks.length === 0 ? (
+                  <div className="text-center py-12">
+                    <p className="text-muted-foreground">No tasks in backlog</p>
+                    <Button variant="outline" className="mt-4" onClick={() => setNewTaskOpen(true)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Create First Task
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {filteredTasks.map((task) => (
+                      <motion.div
+                        key={task.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="border rounded-lg p-4 hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Badge variant={
+                                task.source === "config" ? "default" :
+                                task.source === "message" ? "secondary" : "outline"
+                              }>
+                                {task.source}
+                              </Badge>
+                              <Badge variant={
+                                task.status === "pending" ? "outline" :
+                                task.status === "assigned" ? "default" : "secondary"
+                              }>
+                                {task.status}
+                              </Badge>
+                              {task.assignedAgent && (
+                                <span className="text-sm text-muted-foreground">
+                                  → {agents.find(a => a.agentId === task.assignedAgent)?.agentEmoji}{" "}
+                                  {agents.find(a => a.agentId === task.assignedAgent)?.agentName}
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-sm font-medium mb-1">{task.description}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Created {new Date(task.createdAt).toLocaleString()}
+                            </p>
+                          </div>
+                          <div className="ml-4">
+                            <Select
+                              value={task.assignedAgent || ""}
+                              onValueChange={(value) => assignTask(task.id, value)}
+                            >
+                              <SelectTrigger className="w-[140px]">
+                                <SelectValue placeholder="Assign" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {agents.map(agent => (
+                                  <SelectItem key={agent.agentId} value={agent.agentId}>
+                                    {agent.agentEmoji} {agent.agentName}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
