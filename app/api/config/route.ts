@@ -38,15 +38,35 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { config } = body;
-    if (!config) {
-      return NextResponse.json({ error: "config required" }, { status: 400 });
+    const { config, patch } = body;
+
+    let finalConfig = config;
+
+    if (patch) {
+      // Patch mode: read current config, deep-merge, then write
+      const currentRes = await fetch(`${WORKSPACE_URL}/config`, { cache: "no-store" });
+      if (currentRes.ok) {
+        const currentData = await currentRes.json();
+        const current = currentData.config || currentData;
+        finalConfig = deepMerge(current, patch);
+      } else {
+        finalConfig = patch;
+      }
+    }
+
+    if (!finalConfig) {
+      return NextResponse.json({ error: "config or patch required" }, { status: 400 });
+    }
+
+    // Safety: refuse to save config with 0 agents unless explicitly allowed
+    if (finalConfig.agents?.list?.length === 0 && !body.allowEmpty) {
+      return NextResponse.json({ error: "Refusing to save config with 0 agents" }, { status: 400 });
     }
 
     const res = await fetch(`${WORKSPACE_URL}/config`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ config }),
+      body: JSON.stringify({ config: finalConfig }),
     });
 
     if (!res.ok) {
@@ -65,4 +85,24 @@ export async function POST(request: NextRequest) {
       { status: 502 }
     );
   }
+}
+
+function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
+  if (!source) return target;
+  if (!target) return source;
+
+  const result = { ...target };
+  for (const key of Object.keys(source)) {
+    const sv = source[key];
+    const tv = target[key];
+    if (
+      typeof sv === "object" && sv !== null && !Array.isArray(sv) &&
+      typeof tv === "object" && tv !== null && !Array.isArray(tv)
+    ) {
+      result[key] = deepMerge(tv as Record<string, unknown>, sv as Record<string, unknown>);
+    } else {
+      result[key] = sv;
+    }
+  }
+  return result;
 }

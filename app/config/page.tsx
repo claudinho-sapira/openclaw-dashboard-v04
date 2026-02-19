@@ -121,10 +121,11 @@ export default function ConfigPage() {
     setIsSaving(true)
     setSaveStatus("idle")
     try {
+      // Use patch mode to merge with current server config (safer)
       const res = await fetch("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config: updated }),
+        body: JSON.stringify({ patch: { agents: updated.agents } }),
       })
       if (res.ok) {
         setConfig(JSON.parse(JSON.stringify(updated)))
