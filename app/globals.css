@@ -2,52 +2,100 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================
+   DESIGN TOKENS — Attio-inspired
+   Clean, monochromatic, professional
+   ============================================ */
+
 @layer base {
   :root {
-    /* Light mode - Professional palette */
+    /* Background */
     --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
+    --foreground: 0 0% 5%;
+
+    /* Card / Surface */
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
+    --card-foreground: 0 0% 5%;
+
+    /* Popover */
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
-    --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
-    --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
-    --destructive: 0 84.2% 60.2%;
+    --popover-foreground: 0 0% 5%;
+
+    /* Primary — near-black for Attio feel */
+    --primary: 0 0% 9%;
+    --primary-foreground: 0 0% 98%;
+
+    /* Secondary — light gray */
+    --secondary: 0 0% 96%;
+    --secondary-foreground: 0 0% 9%;
+
+    /* Muted */
+    --muted: 0 0% 96%;
+    --muted-foreground: 0 0% 45%;
+
+    /* Accent */
+    --accent: 0 0% 96%;
+    --accent-foreground: 0 0% 9%;
+
+    /* Destructive */
+    --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.75rem;
+
+    /* Success */
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 98%;
+
+    /* Warning */
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 9%;
+
+    /* Borders & Inputs */
+    --border: 0 0% 90%;
+    --input: 0 0% 90%;
+    --ring: 0 0% 9%;
+
+    /* Radius — Attio uses ~8px */
+    --radius: 0.5rem;
+
+    /* Sidebar */
+    --sidebar-width: 240px;
+    --sidebar-collapsed-width: 64px;
   }
 
   .dark {
-    /* Dark mode - Professional, high contrast */
-    --background: 240 10% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 240 10% 6.5%;
-    --card-foreground: 0 0% 98%;
-    --popover: 240 10% 6.5%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 240 3.7% 15.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 240 3.7% 15.9%;
-    --muted-foreground: 240 5% 64.9%;
-    --accent: 240 3.7% 15.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
+    --background: 0 0% 4%;
+    --foreground: 0 0% 95%;
+
+    --card: 0 0% 7%;
+    --card-foreground: 0 0% 95%;
+
+    --popover: 0 0% 7%;
+    --popover-foreground: 0 0% 95%;
+
+    --primary: 0 0% 98%;
+    --primary-foreground: 0 0% 9%;
+
+    --secondary: 0 0% 12%;
+    --secondary-foreground: 0 0% 95%;
+
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 55%;
+
+    --accent: 0 0% 12%;
+    --accent-foreground: 0 0% 95%;
+
+    --destructive: 0 62% 50%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 3.7% 15.9%;
-    --input: 240 3.7% 15.9%;
-    --ring: 217.2 91.2% 59.8%;
+
+    --success: 142 71% 45%;
+    --success-foreground: 0 0% 98%;
+
+    --warning: 38 92% 50%;
+    --warning-foreground: 0 0% 9%;
+
+    --border: 0 0% 16%;
+    --input: 0 0% 16%;
+    --ring: 0 0% 83%;
   }
 }
 
@@ -55,131 +103,50 @@
   * {
     @apply border-border;
   }
-  
   body {
-    @apply bg-background text-foreground;
-    font-feature-settings: "rlig" 1, "calt" 1;
-  }
-
-  /* Smooth scrolling */
-  html {
-    scroll-behavior: smooth;
-  }
-
-  /* Custom scrollbar */
-  ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
-  }
-
-  ::-webkit-scrollbar-track {
-    @apply bg-secondary;
-  }
-
-  ::-webkit-scrollbar-thumb {
-    @apply bg-muted-foreground/30 rounded-md;
-  }
-
-  ::-webkit-scrollbar-thumb:hover {
-    @apply bg-muted-foreground/50;
-  }
-
-  /* Focus visible styles */
-  *:focus-visible {
-    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 }
 
+/* ============================================
+   TYPOGRAPHY SCALE
+   ============================================ */
 @layer utilities {
-  /* Text balance for headlines */
-  .text-balance {
-    text-wrap: balance;
+  .text-display {
+    @apply text-3xl font-semibold tracking-tight leading-tight;
   }
-
-  /* Smooth animations */
-  .animate-in {
-    animation: fade-in 0.3s ease-out;
+  .text-title {
+    @apply text-xl font-semibold tracking-tight;
   }
-
-  .animate-out {
-    animation: fade-out 0.3s ease-out;
+  .text-subtitle {
+    @apply text-sm font-medium text-muted-foreground;
+  }
+  .text-body {
+    @apply text-sm leading-relaxed;
+  }
+  .text-caption {
+    @apply text-xs text-muted-foreground;
+  }
+  .text-label {
+    @apply text-xs font-medium uppercase tracking-wider text-muted-foreground;
   }
 }
 
-/* Prose styles for markdown preview */
-.prose {
-  @apply text-foreground;
+/* ============================================
+   SCROLLBAR — Minimal
+   ============================================ */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
-
-.prose h1 {
-  @apply text-3xl font-bold mt-6 mb-4;
+::-webkit-scrollbar-track {
+  background: transparent;
 }
-
-.prose h2 {
-  @apply text-2xl font-semibold mt-5 mb-3;
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
 }
-
-.prose h3 {
-  @apply text-xl font-semibold mt-4 mb-2;
-}
-
-.prose h4 {
-  @apply text-lg font-semibold mt-3 mb-2;
-}
-
-.prose p {
-  @apply my-3 leading-7;
-}
-
-.prose ul,
-.prose ol {
-  @apply my-4 ml-6;
-}
-
-.prose li {
-  @apply my-2;
-}
-
-.prose a {
-  @apply text-primary underline underline-offset-2 hover:text-primary/80;
-}
-
-.prose code {
-  @apply bg-muted px-1.5 py-0.5 rounded text-sm font-mono;
-}
-
-.prose pre {
-  @apply bg-muted p-4 rounded-lg overflow-x-auto my-4;
-}
-
-.prose pre code {
-  @apply bg-transparent p-0;
-}
-
-.prose blockquote {
-  @apply border-l-4 border-primary pl-4 italic my-4;
-}
-
-.prose strong {
-  @apply font-semibold;
-}
-
-.prose em {
-  @apply italic;
-}
-
-.prose hr {
-  @apply my-6 border-border;
-}
-
-.prose table {
-  @apply w-full my-4 border-collapse;
-}
-
-.prose th {
-  @apply border border-border bg-muted px-4 py-2 text-left font-semibold;
-}
-
-.prose td {
-  @apply border border-border px-4 py-2;
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.3);
 }
