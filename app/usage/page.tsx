@@ -29,11 +29,8 @@ interface AgentUsage {
   lastActive: number
 }
 
-const AGENT_META: Record<string, { name: string; emoji: string; role: string }> = {
-  pm: { name: "Luna", emoji: "🎯", role: "Project Manager" },
-  builder: { name: "Bolt", emoji: "🔨", role: "Developer" },
-  qa: { name: "Iris", emoji: "🔍", role: "QA Engineer" },
-}
+// Agent meta fetched dynamically from /api/agents
+let AGENT_META_CACHE: Record<string, { name: string; emoji: string; role: string }> = {}
 
 // Rough cost estimate: $15/MTok input, $75/MTok output (Opus 4)
 // We only have totalTokens, assume ~30% output
@@ -54,12 +51,32 @@ export default function UsagePage() {
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const [filterAgent, setFilterAgent] = useState<string>("all")
 
+  const [agentMeta, setAgentMeta] = useState<Record<string, { name: string; emoji: string; role: string }>>({})
+  const [history, setHistory] = useState<any[]>([])
+
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch("/api/sessions")
-      if (res?.ok) {
-        const d = await res.json()
+      const [sessRes, agentsRes, histRes] = await Promise.all([
+        fetch("/api/sessions"),
+        fetch("/api/agents"),
+        fetch("/api/usage/history").catch(() => null),
+      ])
+      if (sessRes?.ok) {
+        const d = await sessRes.json()
         setSessions(d.sessions || [])
+      }
+      if (agentsRes?.ok) {
+        const d = await agentsRes.json()
+        const meta: Record<string, { name: string; emoji: string; role: string }> = {}
+        for (const a of d.agents || []) {
+          meta[a.id] = { name: a.identity?.name || a.id, emoji: a.identity?.emoji || "🤖", role: a.identity?.role || "Agent" }
+        }
+        setAgentMeta(meta)
+        AGENT_META_CACHE = meta
+      }
+      if (histRes?.ok) {
+        const d = await histRes.json()
+        setHistory(d.history || [])
       }
       setLastUpdate(new Date())
     } catch { /* swallow */ } finally {
@@ -81,7 +98,7 @@ export default function UsagePage() {
       const match = s.key?.match(/^agent:([^:]+):/)
       if (!match) return
       const agentId = match[1]
-      const meta = AGENT_META[agentId] || { name: agentId, emoji: "🤖", role: "Agent" }
+      const meta = agentMeta[agentId] || AGENT_META_CACHE[agentId] || { name: agentId, emoji: "🤖", role: "Agent" }
 
       if (!map.has(agentId)) {
         map.set(agentId, {
@@ -110,7 +127,7 @@ export default function UsagePage() {
     })
 
     return Array.from(map.values()).sort((a, b) => b.totalTokens - a.totalTokens)
-  }, [sessions])
+  }, [sessions, agentMeta])
 
   // Selected agent (if filtered)
   const selectedAgent = filterAgent !== "all" ? agentUsage.find(a => a.id === filterAgent) : null
@@ -242,6 +259,9 @@ export default function UsagePage() {
         </div>
       ) : (
         <>
+          {/* Historical bar chart */}
+          <UsageBarChart history={history} agentMeta={agentMeta} fmtTokens={fmtTokens} />
+
           {/* Agent comparison bars */}
           <h2 className="text-title mb-4">Token Usage by Agent</h2>
           <div className="space-y-3 mb-10">
@@ -386,6 +406,147 @@ export default function UsagePage() {
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+/* ── Bar Chart ─────────────────────────────────────── */
+
+const AGENT_COLORS: Record<string, string> = {
+  pm: "bg-neutral-900",
+  builder: "bg-neutral-600",
+  qa: "bg-neutral-400",
+  d: "bg-neutral-300",
+}
+
+function getAgentColor(agentId: string, idx: number): string {
+  return AGENT_COLORS[agentId] || [
+    "bg-neutral-500", "bg-neutral-700", "bg-neutral-200", "bg-neutral-800"
+  ][idx % 4]
+}
+
+interface HistoryEntry {
+  date: string // YYYY-MM-DD
+  agents: Record<string, number> // agentId → tokens that day
+  total: number
+}
+
+function UsageBarChart({ history, agentMeta, fmtTokens }: {
+  history: HistoryEntry[]
+  agentMeta: Record<string, { name: string; emoji: string; role: string }>
+  fmtTokens: (n: number) => string
+}) {
+  const [hoveredDay, setHoveredDay] = useState<string | null>(null)
+
+  if (!history || history.length === 0) {
+    return (
+      <div className="mb-10">
+        <h2 className="text-title mb-4">Daily Token Usage</h2>
+        <Card>
+          <CardContent className="py-16 text-center text-muted-foreground text-sm">
+            <Activity className="h-6 w-6 mx-auto mb-2 opacity-40" />
+            No historical data yet. Usage snapshots are recorded daily.
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // Get all agent IDs from history
+  const allAgentIds = Array.from(new Set(history.flatMap(h => Object.keys(h.agents || {}))))
+  const maxTotal = Math.max(...history.map(h => h.total || 0), 1)
+
+  // Take last 14 days max
+  const displayDays = history.slice(-14)
+
+  return (
+    <div className="mb-10" data-testid="usage-bar-chart">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-title">Daily Token Usage</h2>
+        <div className="flex items-center gap-3">
+          {allAgentIds.map((id, idx) => {
+            const meta = agentMeta[id] || { name: id, emoji: "🤖" }
+            return (
+              <div key={id} className="flex items-center gap-1.5">
+                <div className={`w-2.5 h-2.5 rounded-sm ${getAgentColor(id, idx)}`} />
+                <span className="text-[10px] text-muted-foreground">{meta.emoji} {meta.name}</span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      <Card>
+        <CardContent className="p-5">
+          {/* Y-axis labels + bars */}
+          <div className="flex gap-2">
+            {/* Y axis */}
+            <div className="flex flex-col justify-between text-[9px] font-mono text-muted-foreground w-10 shrink-0 py-1">
+              <span>{fmtTokens(maxTotal)}</span>
+              <span>{fmtTokens(Math.round(maxTotal / 2))}</span>
+              <span>0</span>
+            </div>
+
+            {/* Bars */}
+            <div className="flex-1 flex items-end gap-1" style={{ height: "200px" }}>
+              {displayDays.map(day => {
+                const totalHeight = Math.max((day.total / maxTotal) * 100, 1)
+                const isHovered = hoveredDay === day.date
+
+                return (
+                  <div
+                    key={day.date}
+                    className="flex-1 flex flex-col items-center justify-end h-full relative group"
+                    onMouseEnter={() => setHoveredDay(day.date)}
+                    onMouseLeave={() => setHoveredDay(null)}
+                  >
+                    {/* Tooltip */}
+                    {isHovered && (
+                      <div className="absolute bottom-full mb-2 z-10 bg-foreground text-background rounded-lg px-3 py-2 text-[10px] whitespace-nowrap shadow-lg">
+                        <p className="font-semibold mb-1">{new Date(day.date + "T12:00:00").toLocaleDateString("en", { weekday: "short", month: "short", day: "numeric" })}</p>
+                        {allAgentIds.map(id => {
+                          const tokens = day.agents?.[id] || 0
+                          if (!tokens) return null
+                          const meta = agentMeta[id] || { name: id, emoji: "🤖" }
+                          return <p key={id}>{meta.emoji} {meta.name}: {fmtTokens(tokens)}</p>
+                        })}
+                        <p className="font-semibold mt-1 pt-1 border-t border-background/20">Total: {fmtTokens(day.total)}</p>
+                      </div>
+                    )}
+
+                    {/* Stacked bar */}
+                    <div className="w-full flex flex-col-reverse rounded-t-sm overflow-hidden" style={{ height: `${totalHeight}%` }}>
+                      {allAgentIds.map((id, idx) => {
+                        const tokens = day.agents?.[id] || 0
+                        if (!tokens) return null
+                        const segPct = (tokens / day.total) * 100
+                        return (
+                          <div
+                            key={id}
+                            className={`w-full ${getAgentColor(id, idx)} transition-opacity ${isHovered ? "opacity-100" : "opacity-80"}`}
+                            style={{ height: `${segPct}%`, minHeight: tokens > 0 ? "2px" : "0" }}
+                          />
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          {/* X-axis dates */}
+          <div className="flex gap-1 ml-12 mt-2">
+            {displayDays.map(day => (
+              <div key={day.date} className="flex-1 text-center">
+                <span className="text-[8px] text-muted-foreground font-mono">
+                  {new Date(day.date + "T12:00:00").toLocaleDateString("en", { month: "short", day: "numeric" })}
+                </span>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }
