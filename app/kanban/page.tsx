@@ -582,8 +582,8 @@ export default function KanbanPage() {
                                         </SelectContent>
                                       </Select>
                                     </div>
-                                    {/* QA Agent - show for in-progress and done */}
-                                    {(column.id === "in-progress" || column.id === "done") && (
+                                    {/* QA Agent - only show for in-progress and done columns */}
+                                    {column.id !== "backlog" && (
                                       <div className="flex items-center gap-2">
                                         <span className="text-[10px] uppercase font-bold text-muted-foreground w-8">QA</span>
                                         <Select 
