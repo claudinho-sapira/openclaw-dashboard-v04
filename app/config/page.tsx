@@ -1,33 +1,35 @@
 "use client"
 
-import { useEffect, useState, useCallback, useRef } from "react"
+import { useEffect, useState, useCallback, useRef, useMemo } from "react"
 import { Card, CardContent, Badge } from "@/components/ds"
 import { Button } from "@/components/ds/button"
 import {
   RefreshCw, Save, Settings2, Users, MessageSquare, Zap, Shield, Terminal,
-  Loader2, CheckCircle2, AlertCircle, ChevronRight, Package, Plus, X,
-  Trash2, ScrollText, Circle,
+  Loader2, CheckCircle2, AlertCircle, ChevronRight, ChevronDown, Package, Plus, X,
+  Trash2, ScrollText, Circle, FileText, History, ListTodo, Eye, Code,
 } from "lucide-react"
 
 /* ── Types ──────────────────────────────────────────── */
 type ConfigData = Record<string, any>
+type AgentInfo = { id: string; name: string; emoji: string; workspace: string }
+type SubTab = "configuration" | "workspace-files" | "sessions" | "backlog" | "task-history"
 
-interface Section {
-  id: string
-  label: string
-  icon: React.ReactNode
-  description: string
-}
+const GLOBAL_SECTIONS = [
+  { id: "gateway", label: "Gateway", icon: <Settings2 className="h-4 w-4" /> },
+  { id: "channels", label: "Channels", icon: <MessageSquare className="h-4 w-4" /> },
+  { id: "messages", label: "Messages", icon: <Zap className="h-4 w-4" /> },
+  { id: "commands", label: "Commands", icon: <Terminal className="h-4 w-4" /> },
+  { id: "tools", label: "Tools", icon: <Package className="h-4 w-4" /> },
+  { id: "skills", label: "Skills", icon: <Shield className="h-4 w-4" /> },
+  { id: "logs", label: "Gateway Logs", icon: <ScrollText className="h-4 w-4" /> },
+]
 
-const SECTIONS: Section[] = [
-  { id: "gateway", label: "Gateway", icon: <Settings2 className="h-4 w-4" />, description: "Gateway mode and authentication" },
-  { id: "agents", label: "Agents", icon: <Users className="h-4 w-4" />, description: "Agent list, add or remove agents" },
-  { id: "channels", label: "Channels", icon: <MessageSquare className="h-4 w-4" />, description: "Slack, WhatsApp, and other channels" },
-  { id: "messages", label: "Messages", icon: <Zap className="h-4 w-4" />, description: "Message handling and reactions" },
-  { id: "commands", label: "Commands", icon: <Terminal className="h-4 w-4" />, description: "Native and skill commands" },
-  { id: "tools", label: "Tools", icon: <Package className="h-4 w-4" />, description: "Agent-to-agent and tool settings" },
-  { id: "skills", label: "Skills", icon: <Shield className="h-4 w-4" />, description: "Installed skills and entries" },
-  { id: "logs", label: "Gateway Logs", icon: <ScrollText className="h-4 w-4" />, description: "Real-time gateway log stream" },
+const SUB_TABS: { id: SubTab; label: string; icon: React.ReactNode }[] = [
+  { id: "configuration", label: "Configuration", icon: <Settings2 className="h-3.5 w-3.5" /> },
+  { id: "workspace-files", label: "Workspace Files", icon: <FileText className="h-3.5 w-3.5" /> },
+  { id: "sessions", label: "Sessions & Logs", icon: <ScrollText className="h-3.5 w-3.5" /> },
+  { id: "backlog", label: "Backlog", icon: <ListTodo className="h-3.5 w-3.5" /> },
+  { id: "task-history", label: "Task History", icon: <History className="h-3.5 w-3.5" /> },
 ]
 
 const MODELS = [
@@ -42,10 +44,22 @@ export default function ConfigPage() {
   const [config, setConfig] = useState<ConfigData | null>(null)
   const [editedConfig, setEditedConfig] = useState<ConfigData | null>(null)
   const [activeSection, setActiveSection] = useState("gateway")
+  const [expandedAgent, setExpandedAgent] = useState<string | null>(null)
+  const [agentSubTab, setAgentSubTab] = useState<SubTab>("configuration")
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">("idle")
   const [hasChanges, setHasChanges] = useState(false)
+
+  const agents: AgentInfo[] = useMemo(() => {
+    const list = config?.agents?.list || []
+    return list.map((a: any) => ({
+      id: a.id,
+      name: a.identity?.name || a.name || a.id,
+      emoji: a.identity?.emoji || "🤖",
+      workspace: a.workspace || "",
+    }))
+  }, [config])
 
   const fetchConfig = useCallback(async () => {
     try {
@@ -72,76 +86,47 @@ export default function ConfigPage() {
 
   const saveConfig = async () => {
     if (!editedConfig) return
-    setIsSaving(true)
-    setSaveStatus("idle")
+    setIsSaving(true); setSaveStatus("idle")
     try {
       const res = await fetch("/api/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ config: editedConfig }),
       })
       if (res.ok) {
         setConfig(JSON.parse(JSON.stringify(editedConfig)))
-        setHasChanges(false)
-        setSaveStatus("success")
+        setHasChanges(false); setSaveStatus("success")
         setTimeout(() => setSaveStatus("idle"), 3000)
-      } else {
-        setSaveStatus("error")
-        setTimeout(() => setSaveStatus("idle"), 5000)
-      }
-    } catch {
-      setSaveStatus("error")
-      setTimeout(() => setSaveStatus("idle"), 5000)
-    } finally {
-      setIsSaving(false)
-    }
+      } else { setSaveStatus("error"); setTimeout(() => setSaveStatus("idle"), 5000) }
+    } catch { setSaveStatus("error"); setTimeout(() => setSaveStatus("idle"), 5000) }
+    finally { setIsSaving(false) }
   }
 
   const resetChanges = () => {
-    if (config) {
-      setEditedConfig(JSON.parse(JSON.stringify(config)))
-      setHasChanges(false)
-    }
+    if (config) { setEditedConfig(JSON.parse(JSON.stringify(config))); setHasChanges(false) }
   }
 
   const updateField = (path: string[], value: any) => {
     if (!editedConfig) return
     const updated = JSON.parse(JSON.stringify(editedConfig))
     let obj = updated
-    for (let i = 0; i < path.length - 1; i++) {
-      if (!obj[path[i]]) obj[path[i]] = {}
-      obj = obj[path[i]]
-    }
+    for (let i = 0; i < path.length - 1; i++) { if (!obj[path[i]]) obj[path[i]] = {}; obj = obj[path[i]] }
     obj[path[path.length - 1]] = value
     setEditedConfig(updated)
   }
 
   const autoSave = async (updated: ConfigData) => {
-    setEditedConfig(updated)
-    setIsSaving(true)
-    setSaveStatus("idle")
+    setEditedConfig(updated); setIsSaving(true); setSaveStatus("idle")
     try {
-      // Use patch mode to merge with current server config (safer)
       const res = await fetch("/api/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ patch: { agents: updated.agents } }),
       })
       if (res.ok) {
-        setConfig(JSON.parse(JSON.stringify(updated)))
-        setHasChanges(false)
-        setSaveStatus("success")
+        setConfig(JSON.parse(JSON.stringify(updated))); setHasChanges(false); setSaveStatus("success")
         setTimeout(() => setSaveStatus("idle"), 3000)
-      } else {
-        setSaveStatus("error")
-        setTimeout(() => setSaveStatus("idle"), 5000)
-      }
-    } catch {
-      setSaveStatus("error")
-      setTimeout(() => setSaveStatus("idle"), 5000)
-    } finally {
-      setIsSaving(false)
-    }
+      } else { setSaveStatus("error"); setTimeout(() => setSaveStatus("idle"), 5000) }
+    } catch { setSaveStatus("error"); setTimeout(() => setSaveStatus("idle"), 5000) }
+    finally { setIsSaving(false) }
   }
 
   const addAgent = (agent: any) => {
@@ -160,42 +145,58 @@ export default function ConfigPage() {
     autoSave(updated)
   }
 
-  const isLogsSection = activeSection === "logs"
-  const isAgentsSection = activeSection === "agents"
-  const sectionData = editedConfig?.[activeSection] || {}
+  const handleAgentClick = (agentId: string) => {
+    if (expandedAgent === agentId) {
+      setExpandedAgent(null)
+      setActiveSection("gateway")
+    } else {
+      setExpandedAgent(agentId)
+      setAgentSubTab("configuration")
+      setActiveSection(`agent:${agentId}`)
+    }
+  }
+
+  const handleSubTabClick = (agentId: string, tab: SubTab) => {
+    setAgentSubTab(tab)
+    setActiveSection(`agent:${agentId}`)
+  }
+
+  const handleGlobalSection = (sectionId: string) => {
+    setExpandedAgent(null)
+    setActiveSection(sectionId)
+  }
+
+  // Breadcrumb
+  const breadcrumb = useMemo(() => {
+    if (activeSection.startsWith("agent:")) {
+      const agentId = activeSection.replace("agent:", "")
+      const agent = agents.find(a => a.id === agentId)
+      const tab = SUB_TABS.find(t => t.id === agentSubTab)
+      return agent ? `Config › ${agent.name} › ${tab?.label || ""}` : "Config"
+    }
+    const section = GLOBAL_SECTIONS.find(s => s.id === activeSection)
+    return section ? `Config › ${section.label}` : "Config"
+  }, [activeSection, agentSubTab, agents])
+
+  const isAgentView = activeSection.startsWith("agent:")
+  const currentAgentId = isAgentView ? activeSection.replace("agent:", "") : null
 
   return (
     <div className="max-w-7xl mx-auto px-6 py-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-2">
         <div>
           <h1 className="text-display">Config</h1>
-          <p className="text-subtitle mt-1">OpenClaw gateway configuration</p>
+          <p className="text-xs text-muted-foreground mt-1 font-mono">{breadcrumb}</p>
         </div>
         <div className="flex items-center gap-3">
-          {saveStatus === "success" && (
-            <span className="flex items-center gap-1.5 text-sm text-green-600">
-              <CheckCircle2 className="h-4 w-4" /> Saved
-            </span>
-          )}
-          {saveStatus === "error" && (
-            <span className="flex items-center gap-1.5 text-sm text-red-600">
-              <AlertCircle className="h-4 w-4" /> Save failed
-            </span>
-          )}
-          {hasChanges && (
-            <Button variant="ghost" size="sm" onClick={resetChanges}>Reset</Button>
-          )}
-          {!isLogsSection && (
-            <Button
-              variant={hasChanges ? "default" : "outline"}
-              size="sm"
-              onClick={saveConfig}
-              disabled={!hasChanges || isSaving}
-              data-testid="config-save"
-            >
+          {saveStatus === "success" && <span className="flex items-center gap-1.5 text-sm text-green-600"><CheckCircle2 className="h-4 w-4" /> Saved</span>}
+          {saveStatus === "error" && <span className="flex items-center gap-1.5 text-sm text-red-600"><AlertCircle className="h-4 w-4" /> Failed</span>}
+          {hasChanges && <Button variant="ghost" size="sm" onClick={resetChanges}>Reset</Button>}
+          {!activeSection.includes("logs") && (
+            <Button variant={hasChanges ? "default" : "outline"} size="sm" onClick={saveConfig} disabled={!hasChanges || isSaving} data-testid="config-save">
               {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              {isSaving ? "Saving..." : "Save Changes"}
+              {isSaving ? "Saving..." : "Save"}
             </Button>
           )}
           <Button variant="outline" size="sm" onClick={fetchConfig} disabled={isLoading}>
@@ -205,68 +206,99 @@ export default function ConfigPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex items-center justify-center py-24 text-muted-foreground">
-          <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading config...
-        </div>
-      ) : !config && !isLogsSection ? (
-        <Card>
-          <CardContent className="py-12 text-center text-muted-foreground">
-            <AlertCircle className="h-8 w-8 mx-auto mb-3 opacity-40" />
-            <p>Could not load config from workspace server</p>
-          </CardContent>
-        </Card>
+        <div className="flex items-center justify-center py-24 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading...</div>
       ) : (
-        <div className="grid grid-cols-[220px_1fr] gap-6">
+        <div className="grid grid-cols-[240px_1fr] gap-6 mt-4">
           {/* Sidebar */}
           <nav className="space-y-1" data-testid="config-sidebar">
-            {SECTIONS.map(section => {
-              const isActive = activeSection === section.id
+            {/* Agents section */}
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-3 pt-2 pb-1">Agents</p>
+            {agents.map(agent => {
+              const isExpanded = expandedAgent === agent.id
               return (
-                <button
-                  key={section.id}
-                  onClick={() => setActiveSection(section.id)}
-                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
-                    isActive
-                      ? "bg-foreground/5 text-foreground font-medium"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                  }`}
-                  data-testid={`config-section-${section.id}`}
-                >
-                  {section.icon}
-                  <span className="flex-1">{section.label}</span>
-                  {isActive && <ChevronRight className="h-3 w-3" />}
-                </button>
+                <div key={agent.id}>
+                  <button
+                    onClick={() => handleAgentClick(agent.id)}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
+                      isExpanded ? "bg-foreground/5 text-foreground font-medium" : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                    }`}
+                    data-testid={`config-agent-${agent.id}`}
+                  >
+                    <span className="text-base">{agent.emoji}</span>
+                    <span className="flex-1">{agent.name}</span>
+                    {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                  </button>
+                  {isExpanded && (
+                    <div className="ml-4 pl-3 border-l space-y-0.5 py-1">
+                      {SUB_TABS.map(tab => (
+                        <button
+                          key={tab.id}
+                          onClick={() => handleSubTabClick(agent.id, tab.id)}
+                          className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs text-left transition-colors ${
+                            agentSubTab === tab.id
+                              ? "bg-foreground/5 text-foreground font-medium"
+                              : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
+                          }`}
+                          data-testid={`config-subtab-${tab.id}`}
+                        >
+                          {tab.icon}
+                          <span>{tab.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )
             })}
+
+            {/* Add Agent */}
+            <AddAgentButton onAdd={addAgent} />
+
+            {/* Divider */}
+            <div className="border-t my-2" />
+
+            {/* Global sections */}
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-3 pt-1 pb-1">Global</p>
+            {GLOBAL_SECTIONS.map(section => (
+              <button
+                key={section.id}
+                onClick={() => handleGlobalSection(section.id)}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
+                  activeSection === section.id && !isAgentView
+                    ? "bg-foreground/5 text-foreground font-medium"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                }`}
+                data-testid={`config-section-${section.id}`}
+              >
+                {section.icon}
+                <span className="flex-1">{section.label}</span>
+              </button>
+            ))}
           </nav>
 
-          {/* Content */}
-          <div className="space-y-6" data-testid="config-content">
-            <div className="pb-4 border-b">
-              <h2 className="text-title flex items-center gap-2">
-                {SECTIONS.find(s => s.id === activeSection)?.icon}
-                {SECTIONS.find(s => s.id === activeSection)?.label}
-              </h2>
-              <p className="text-xs text-muted-foreground mt-1">
-                {SECTIONS.find(s => s.id === activeSection)?.description}
-              </p>
-            </div>
-
-            {isLogsSection ? (
-              <GatewayLogs />
-            ) : isAgentsSection ? (
-              <AgentsSection
+          {/* Content Area */}
+          <div className="min-h-[500px]" data-testid="config-content">
+            {isAgentView && currentAgentId ? (
+              <AgentContent
+                agentId={currentAgentId}
+                agent={agents.find(a => a.id === currentAgentId)!}
+                subTab={agentSubTab}
                 config={editedConfig!}
                 onUpdate={updateField}
-                onAddAgent={addAgent}
-                onDeleteAgent={deleteAgent}
+                onDeleteAgent={() => {
+                  const idx = (editedConfig?.agents?.list || []).findIndex((a: any) => a.id === currentAgentId)
+                  if (idx >= 0) { deleteAgent(idx); setExpandedAgent(null); setActiveSection("gateway") }
+                }}
               />
+            ) : activeSection === "logs" ? (
+              <GatewayLogs />
             ) : (
-              <ConfigSection
-                data={sectionData}
-                path={[activeSection]}
-                onUpdate={updateField}
-              />
+              <div className="space-y-6">
+                <div className="pb-4 border-b">
+                  <h2 className="text-title">{GLOBAL_SECTIONS.find(s => s.id === activeSection)?.label}</h2>
+                </div>
+                <ConfigSection data={editedConfig?.[activeSection] || {}} path={[activeSection]} onUpdate={updateField} />
+              </div>
             )}
           </div>
         </div>
@@ -275,191 +307,466 @@ export default function ConfigPage() {
   )
 }
 
-/* ── Agents Section (rich view) ───────────────────── */
+/* ── Agent Content (5 sub-tabs) ───────────────────── */
 
-function AgentsSection({
-  config,
-  onUpdate,
-  onAddAgent,
-  onDeleteAgent,
-}: {
-  config: ConfigData
-  onUpdate: (path: string[], value: any) => void
-  onAddAgent: (agent: any) => void
-  onDeleteAgent: (idx: number) => void
+function AgentContent({ agentId, agent, subTab, config, onUpdate, onDeleteAgent }: {
+  agentId: string; agent: AgentInfo; subTab: SubTab; config: ConfigData
+  onUpdate: (path: string[], value: any) => void; onDeleteAgent: () => void
 }) {
-  const [agentStatuses, setAgentStatuses] = useState<Record<string, any>>({})
-  const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null)
-  const [showAddForm, setShowAddForm] = useState(false)
-  const agents: any[] = config?.agents?.list || []
-  const defaults = config?.agents?.defaults || {}
-
-  // Fetch real-time agent status from sessions
-  useEffect(() => {
-    const fetchStatuses = async () => {
-      try {
-        const res = await fetch("/api/sessions")
-        if (res.ok) {
-          const sessions = await res.json()
-          const statuses: Record<string, any> = {}
-          for (const s of (Array.isArray(sessions) ? sessions : [])) {
-            const key = s.sessionKey || s.key || ""
-            // Match agent:XX:main sessions
-            const match = key.match(/^agent:(\w+):main$/)
-            if (match) {
-              const agentId = match[1]
-              statuses[agentId] = {
-                active: true,
-                model: s.model || s.currentModel || "",
-                tokens: s.totalTokens || 0,
-                lastActivity: s.updatedAt || s.lastMessageAt || "",
-              }
-            }
-          }
-          setAgentStatuses(statuses)
-        }
-      } catch { /* swallow */ }
-    }
-    fetchStatuses()
-    const iv = setInterval(fetchStatuses, 15000)
-    return () => clearInterval(iv)
-  }, [])
+  const agentIdx = (config.agents?.list || []).findIndex((a: any) => a.id === agentId)
+  const agentConfig = config.agents?.list?.[agentIdx] || {}
 
   return (
     <div className="space-y-6">
-      {/* Defaults */}
-      <CollapsibleField label="defaults" depth={0}>
-        <ConfigSection data={defaults} path={["agents", "defaults"]} onUpdate={onUpdate} depth={1} />
-      </CollapsibleField>
-
-      {/* Agent Cards */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <p className="text-label">Agents ({agents.length})</p>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowAddForm(true)}
-            data-testid="add-agent-btn"
-          >
-            <Plus className="h-4 w-4" /> Add Agent
-          </Button>
+      {/* Agent header */}
+      <div className="flex items-center justify-between pb-4 border-b">
+        <div className="flex items-center gap-3">
+          <span className="text-2xl">{agent.emoji}</span>
+          <div>
+            <h2 className="text-title flex items-center gap-2">
+              {agent.name}
+              <Badge variant="outline" className="text-[10px] font-mono">{agentId}</Badge>
+            </h2>
+            <p className="text-xs text-muted-foreground">{agentConfig.identity?.theme || ""}</p>
+          </div>
         </div>
-
-        {agents.map((agent, idx) => {
-          const status = agentStatuses[agent.id] || {}
-          const model = agent.model?.primary || ""
-          const modelShort = model.split("/").pop()?.replace(/-\d{8}$/, "") || model
-          const isDeleting = deleteConfirm === idx
-
-          return (
-            <Card key={idx}>
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center gap-3">
-                    <span className="text-2xl">{agent.identity?.emoji || "🤖"}</span>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-sm">{agent.identity?.name || agent.name || agent.id}</span>
-                        <Badge variant="outline" className="text-[10px] font-mono">{agent.id}</Badge>
-                        {agent.default && <Badge className="text-[10px]">default</Badge>}
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {agent.identity?.theme || "No description"}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    {/* Status indicator */}
-                    <div className="flex items-center gap-1.5">
-                      <Circle className={`h-2 w-2 fill-current ${status.active ? "text-green-500" : "text-gray-300"}`} />
-                      <span className="text-[10px] text-muted-foreground">
-                        {status.active ? "Active" : "Inactive"}
-                      </span>
-                    </div>
-
-                    {/* Delete */}
-                    {!isDeleting ? (
-                      <button
-                        onClick={() => setDeleteConfirm(idx)}
-                        className="p-1.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors"
-                        data-testid={`delete-agent-${agent.id}`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    ) : (
-                      <div className="flex items-center gap-1.5 bg-red-50 rounded-lg px-2 py-1">
-                        <span className="text-xs text-red-700">Delete?</span>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          className="h-6 text-[10px] px-2"
-                          onClick={() => { onDeleteAgent(idx); setDeleteConfirm(null) }}
-                          data-testid={`confirm-delete-${agent.id}`}
-                        >
-                          Yes
-                        </Button>
-                        <button
-                          onClick={() => setDeleteConfirm(null)}
-                          className="text-xs text-muted-foreground hover:text-foreground px-1"
-                        >
-                          No
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Meta row */}
-                <div className="flex items-center gap-4 mt-3 pt-3 border-t">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-muted-foreground">Model:</span>
-                    <Badge variant="outline" className="text-[10px] font-mono">{modelShort}</Badge>
-                  </div>
-                  {status.tokens > 0 && (
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] text-muted-foreground">Tokens:</span>
-                      <span className="text-[10px] font-mono">{(status.tokens / 1000).toFixed(0)}K</span>
-                    </div>
-                  )}
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-muted-foreground">Workspace:</span>
-                    <span className="text-[10px] font-mono truncate max-w-[200px]">{agent.workspace}</span>
-                  </div>
-                </div>
-
-                {/* Expandable config */}
-                <details className="mt-3">
-                  <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
-                    Advanced config
-                  </summary>
-                  <div className="mt-2 pl-2 border-l-2">
-                    <ConfigSection
-                      data={(() => {
-                        const { id, name, default: _d, workspace, agentDir, identity, model: _m, ...rest } = agent
-                        return rest
-                      })()}
-                      path={["agents", "list", String(idx)]}
-                      onUpdate={onUpdate}
-                      depth={2}
-                    />
-                  </div>
-                </details>
-              </CardContent>
-            </Card>
-          )
-        })}
+        <DeleteAgentButton agentId={agentId} agentName={agent.name} onDelete={onDeleteAgent} />
       </div>
 
-      {/* Add Agent Form */}
-      {showAddForm && (
-        <AddAgentForm
-          onAdd={(agent) => { onAddAgent(agent); setShowAddForm(false) }}
-          onCancel={() => setShowAddForm(false)}
-        />
+      {/* Sub-tab content */}
+      {subTab === "configuration" && (
+        <AgentConfiguration agentConfig={agentConfig} agentIdx={agentIdx} onUpdate={onUpdate} />
+      )}
+      {subTab === "workspace-files" && (
+        <WorkspaceFiles agentId={agentId} />
+      )}
+      {subTab === "sessions" && (
+        <AgentSessions agentId={agentId} />
+      )}
+      {subTab === "backlog" && (
+        <AgentBacklog agentId={agentId} agentName={agent.name} />
+      )}
+      {subTab === "task-history" && (
+        <AgentTaskHistory agentId={agentId} agentName={agent.name} />
       )}
     </div>
+  )
+}
+
+/* ── Sub-tab 1: Configuration ─────────────────────── */
+
+function AgentConfiguration({ agentConfig, agentIdx, onUpdate }: { agentConfig: any; agentIdx: number; onUpdate: (p: string[], v: any) => void }) {
+  const [showRaw, setShowRaw] = useState(false)
+  const path = ["agents", "list", String(agentIdx)]
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-label">Agent Configuration</p>
+        <Button variant="ghost" size="sm" onClick={() => setShowRaw(!showRaw)} data-testid="config-raw-toggle">
+          {showRaw ? <Eye className="h-3.5 w-3.5" /> : <Code className="h-3.5 w-3.5" />}
+          {showRaw ? "Visual" : "Raw JSON"}
+        </Button>
+      </div>
+
+      {showRaw ? (
+        <pre className="bg-gray-950 text-gray-200 rounded-lg p-4 font-mono text-xs overflow-auto max-h-[600px]">
+          {JSON.stringify(agentConfig, null, 2)}
+        </pre>
+      ) : (
+        <ConfigSection data={agentConfig} path={path} onUpdate={onUpdate} />
+      )}
+    </div>
+  )
+}
+
+/* ── Sub-tab 2: Workspace Files ───────────────────── */
+
+function WorkspaceFiles({ agentId }: { agentId: string }) {
+  const [files, setFiles] = useState<any[]>([])
+  const [selectedFile, setSelectedFile] = useState<string | null>(null)
+  const [content, setContent] = useState("")
+  const [originalContent, setOriginalContent] = useState("")
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveMsg, setSaveMsg] = useState("")
+  const [showPreview, setShowPreview] = useState(false)
+
+  useEffect(() => {
+    (async () => {
+      setIsLoading(true)
+      try {
+        const res = await fetch(`/api/workspace/${agentId}/files`)
+        if (res.ok) {
+          const data = await res.json()
+          setFiles(data.files || [])
+        }
+      } catch {} finally { setIsLoading(false) }
+    })()
+  }, [agentId])
+
+  const loadFile = async (filename: string) => {
+    setSelectedFile(filename); setShowPreview(false)
+    try {
+      const res = await fetch(`/api/workspace/${agentId}/files/${filename}`)
+      if (res.ok) {
+        const data = await res.json()
+        setContent(data.content || "")
+        setOriginalContent(data.content || "")
+      }
+    } catch {}
+  }
+
+  const saveFile = async () => {
+    if (!selectedFile) return
+    setIsSaving(true); setSaveMsg("")
+    try {
+      const res = await fetch(`/api/workspace/${agentId}/files/${selectedFile}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content }),
+      })
+      if (res.ok) {
+        setOriginalContent(content)
+        setSaveMsg("Saved!")
+        setTimeout(() => setSaveMsg(""), 3000)
+      } else { setSaveMsg("Save failed") }
+    } catch { setSaveMsg("Error saving") }
+    finally { setIsSaving(false) }
+  }
+
+  const hasUnsaved = content !== originalContent
+
+  if (isLoading) return <div className="py-8 text-center text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin inline mr-2" />Loading files...</div>
+
+  return (
+    <div className="grid grid-cols-[200px_1fr] gap-4">
+      {/* File list */}
+      <div className="space-y-1">
+        <p className="text-label mb-2">Files</p>
+        {files.filter(f => f.exists).map(f => (
+          <button
+            key={f.name}
+            onClick={() => loadFile(f.name)}
+            className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs text-left transition-colors ${
+              selectedFile === f.name ? "bg-foreground/5 text-foreground font-medium" : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
+            }`}
+            data-testid={`workspace-file-${f.name}`}
+          >
+            <FileText className="h-3 w-3" />
+            <span className="flex-1 truncate">{f.name}</span>
+            <span className="text-[9px] text-muted-foreground">{(f.size / 1024).toFixed(1)}K</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Editor */}
+      {selectedFile ? (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-medium">{selectedFile}</span>
+              {hasUnsaved && <Badge className="text-[9px]">unsaved</Badge>}
+              {saveMsg && <span className={`text-xs ${saveMsg === "Saved!" ? "text-green-600" : "text-red-600"}`}>{saveMsg}</span>}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setShowPreview(!showPreview)}>
+                {showPreview ? <Code className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                {showPreview ? "Edit" : "Preview"}
+              </Button>
+              <Button size="sm" disabled={!hasUnsaved || isSaving} onClick={saveFile} data-testid="workspace-save">
+                {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                Save
+              </Button>
+            </div>
+          </div>
+          {showPreview ? (
+            <div className="prose prose-sm max-w-none border rounded-lg p-4 bg-muted/10 max-h-[500px] overflow-auto">
+              <MarkdownPreview content={content} />
+            </div>
+          ) : (
+            <textarea
+              value={content}
+              onChange={e => setContent(e.target.value)}
+              className="w-full h-[500px] px-4 py-3 font-mono text-xs border rounded-lg bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20 resize-none"
+              data-testid="workspace-editor"
+            />
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center justify-center h-64 text-muted-foreground text-sm">
+          Select a file to edit
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MarkdownPreview({ content }: { content: string }) {
+  // Simple markdown → HTML (headers, bold, code, lists)
+  const html = content
+    .replace(/^### (.*$)/gm, '<h3 class="text-sm font-semibold mt-3 mb-1">$1</h3>')
+    .replace(/^## (.*$)/gm, '<h2 class="text-base font-semibold mt-4 mb-1">$1</h2>')
+    .replace(/^# (.*$)/gm, '<h1 class="text-lg font-bold mt-4 mb-2">$1</h1>')
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`(.*?)`/g, '<code class="bg-muted px-1 rounded text-xs">$1</code>')
+    .replace(/^- (.*$)/gm, '<li class="ml-4 list-disc text-xs">$1</li>')
+    .replace(/^(\d+)\. (.*$)/gm, '<li class="ml-4 list-decimal text-xs">$2</li>')
+    .replace(/\n\n/g, '<br/><br/>')
+  return <div className="text-xs leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />
+}
+
+/* ── Sub-tab 3: Sessions & Logs ───────────────────── */
+
+function AgentSessions({ agentId }: { agentId: string }) {
+  const [sessions, setSessions] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    (async () => {
+      setIsLoading(true)
+      try {
+        const res = await fetch("/api/sessions")
+        if (res.ok) {
+          const data = await res.json()
+          const all = Array.isArray(data) ? data : []
+          const filtered = all.filter((s: any) => {
+            const key = s.sessionKey || s.key || ""
+            return key.includes(`:${agentId}:`)
+          })
+          setSessions(filtered)
+        }
+      } catch {} finally { setIsLoading(false) }
+    })()
+  }, [agentId])
+
+  if (isLoading) return <div className="py-8 text-center text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin inline mr-2" />Loading sessions...</div>
+
+  return (
+    <div className="space-y-4">
+      <p className="text-label">Sessions ({sessions.length})</p>
+      {sessions.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No sessions found for this agent</p>
+      ) : (
+        <div className="space-y-2 max-h-[500px] overflow-auto">
+          {sessions.map((s, i) => {
+            const key = s.sessionKey || s.key || ""
+            const model = s.model || s.currentModel || ""
+            const tokens = s.totalTokens || 0
+            const updated = s.updatedAt || s.lastMessageAt || ""
+            const channel = key.split(":")[2] || "main"
+            return (
+              <Card key={i}>
+                <CardContent className="p-3 flex items-center justify-between">
+                  <div>
+                    <p className="text-xs font-mono font-medium">{key}</p>
+                    <div className="flex items-center gap-3 mt-1">
+                      <Badge variant="outline" className="text-[9px]">{channel}</Badge>
+                      {model && <span className="text-[10px] text-muted-foreground">{model.split("/").pop()}</span>}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-mono">{tokens > 0 ? `${(tokens / 1000).toFixed(0)}K tokens` : "—"}</p>
+                    {updated && <p className="text-[10px] text-muted-foreground">{new Date(updated).toLocaleString()}</p>}
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── Sub-tab 4: Backlog ───────────────────────────── */
+
+function AgentBacklog({ agentId, agentName }: { agentId: string; agentName: string }) {
+  const [issues, setIssues] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    (async () => {
+      setIsLoading(true)
+      try {
+        const res = await fetch("/api/linear/issues")
+        if (res.ok) {
+          const data = await res.json()
+          const all = data.issues || []
+          // Filter backlog issues for this agent
+          const filtered = all.filter((issue: any) => {
+            const col = issue.column || ""
+            const isBacklog = col === "backlog" || col === "todo"
+            const labels = (issue.labels || []).map((l: any) => (l.name || "").toLowerCase())
+            const matchAgent = labels.some((l: string) => l.includes(agentId) || l.includes(agentName.toLowerCase()))
+              || (issue.assigneeName || "").toLowerCase().includes(agentName.toLowerCase())
+            return isBacklog && matchAgent
+          })
+          setIssues(filtered)
+        }
+      } catch {} finally { setIsLoading(false) }
+    })()
+  }, [agentId, agentName])
+
+  if (isLoading) return <div className="py-8 text-center text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin inline mr-2" />Loading backlog...</div>
+
+  return (
+    <div className="space-y-4">
+      <p className="text-label">Backlog ({issues.length})</p>
+      {issues.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No backlog issues for {agentName}</p>
+      ) : (
+        <div className="space-y-2">
+          {issues.map((issue, i) => (
+            <IssueRow key={i} issue={issue} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── Sub-tab 5: Task History ──────────────────────── */
+
+function AgentTaskHistory({ agentId, agentName }: { agentId: string; agentName: string }) {
+  const [issues, setIssues] = useState<any[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    (async () => {
+      setIsLoading(true)
+      try {
+        const res = await fetch("/api/linear/issues")
+        if (res.ok) {
+          const data = await res.json()
+          const all = data.issues || []
+          const filtered = all.filter((issue: any) => {
+            const col = issue.column || ""
+            const isDone = col === "done"
+            const labels = (issue.labels || []).map((l: any) => (l.name || "").toLowerCase())
+            const matchAgent = labels.some((l: string) => l.includes(agentId) || l.includes(agentName.toLowerCase()))
+              || (issue.assigneeName || "").toLowerCase().includes(agentName.toLowerCase())
+            return isDone && matchAgent
+          })
+          setIssues(filtered)
+        }
+      } catch {} finally { setIsLoading(false) }
+    })()
+  }, [agentId, agentName])
+
+  if (isLoading) return <div className="py-8 text-center text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin inline mr-2" />Loading history...</div>
+
+  return (
+    <div className="space-y-4">
+      <p className="text-label">Completed ({issues.length})</p>
+      {issues.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No completed issues for {agentName}</p>
+      ) : (
+        <div className="space-y-2">
+          {issues.map((issue, i) => (
+            <IssueRow key={i} issue={issue} showDates />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function IssueRow({ issue, showDates }: { issue: any; showDates?: boolean }) {
+  return (
+    <Card>
+      <CardContent className="p-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-[9px] font-mono">{issue.identifier}</Badge>
+              <span className="text-xs font-medium">{issue.title}</span>
+            </div>
+            <div className="flex items-center gap-2 mt-1">
+              {issue.priority != null && <Badge className="text-[9px]">P{issue.priority}</Badge>}
+              {(issue.labels || []).map((l: any, j: number) => (
+                <Badge key={j} variant="outline" className="text-[9px]">{l.name}</Badge>
+              ))}
+            </div>
+          </div>
+          {showDates && issue.completedAt && (
+            <span className="text-[10px] text-muted-foreground">{new Date(issue.completedAt).toLocaleDateString()}</span>
+          )}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/* ── Delete Agent Button ──────────────────────────── */
+
+function DeleteAgentButton({ agentId, agentName, onDelete }: { agentId: string; agentName: string; onDelete: () => void }) {
+  const [confirming, setConfirming] = useState(false)
+  if (!confirming) return (
+    <button onClick={() => setConfirming(true)} className="p-1.5 rounded hover:bg-red-50 text-muted-foreground hover:text-red-600 transition-colors" data-testid={`delete-agent-${agentId}`}>
+      <Trash2 className="h-4 w-4" />
+    </button>
+  )
+  return (
+    <div className="flex items-center gap-2 bg-red-50 rounded-lg px-3 py-1.5">
+      <span className="text-xs text-red-700">Delete {agentName}?</span>
+      <Button variant="destructive" size="sm" className="h-6 text-[10px] px-2" onClick={onDelete} data-testid={`confirm-delete-${agentId}`}>Yes</Button>
+      <button onClick={() => setConfirming(false)} className="text-xs text-muted-foreground hover:text-foreground px-1">No</button>
+    </div>
+  )
+}
+
+/* ── Add Agent Button ─────────────────────────────── */
+
+function AddAgentButton({ onAdd }: { onAdd: (agent: any) => void }) {
+  const [open, setOpen] = useState(false)
+  const [form, setForm] = useState({ id: "", name: "", model: "anthropic/claude-sonnet-4-5-20250514", emoji: "🤖", theme: "", workspace: "" })
+
+  const canSubmit = form.id.trim() && form.name.trim()
+  const handleSubmit = () => {
+    if (!canSubmit) return
+    const cleanId = form.id.toLowerCase().replace(/[^a-z0-9-]/g, "")
+    onAdd({
+      id: cleanId, name: form.name,
+      workspace: form.workspace || `~/.openclaw/workspace-${cleanId}`,
+      agentDir: `~/.openclaw/agents/${cleanId}/agent`,
+      model: { primary: form.model },
+      identity: { name: form.name, emoji: form.emoji, theme: form.theme || `${form.name} agent` },
+      tools: { allow: ["exec", "read", "write", "edit", "sessions_list", "sessions_send", "session_status", "message"] },
+    })
+    setForm({ id: "", name: "", model: "anthropic/claude-sonnet-4-5-20250514", emoji: "🤖", theme: "", workspace: "" })
+    setOpen(false)
+  }
+
+  if (!open) return (
+    <button onClick={() => setOpen(true)} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors" data-testid="add-agent-btn">
+      <Plus className="h-4 w-4" /> <span>Add Agent</span>
+    </button>
+  )
+
+  return (
+    <Card className="mt-2">
+      <CardContent className="p-3 space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold">New Agent</span>
+          <button onClick={() => setOpen(false)} className="p-0.5 rounded hover:bg-muted"><X className="h-3 w-3" /></button>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <input type="text" placeholder="ID" value={form.id} onChange={e => setForm({...form, id: e.target.value})} className="h-7 px-2 text-xs border rounded bg-background font-mono" data-testid="new-agent-id" />
+          <input type="text" placeholder="Name" value={form.name} onChange={e => setForm({...form, name: e.target.value})} className="h-7 px-2 text-xs border rounded bg-background" data-testid="new-agent-name" />
+          <input type="text" value={form.emoji} onChange={e => setForm({...form, emoji: e.target.value})} className="h-7 px-2 text-xs border rounded bg-background text-center" />
+          <select value={form.model} onChange={e => setForm({...form, model: e.target.value})} className="h-7 px-1 text-xs border rounded bg-background" data-testid="new-agent-model">
+            {MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+          </select>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="ghost" size="sm" className="h-6 text-[10px]" onClick={() => setOpen(false)}>Cancel</Button>
+          <Button size="sm" className="h-6 text-[10px]" disabled={!canSubmit} onClick={handleSubmit} data-testid="add-agent-submit">
+            <Plus className="h-3 w-3" /> Add
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -470,26 +777,23 @@ function GatewayLogs() {
   const [isStreaming, setIsStreaming] = useState(true)
   const [filter, setFilter] = useState("")
   const logsEndRef = useRef<HTMLDivElement>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
 
   const fetchLogs = useCallback(async () => {
     try {
       const res = await fetch("/api/gateway/logs")
       if (res.ok) {
         const data = await res.json()
-        const lines: string[] = data.logs || data.lines || []
+        const lines: string[] = data.logs || []
         if (lines.length > 0) {
           setLogs(prev => {
-            // Deduplicate: only add lines not already in previous
             const prevSet = new Set(prev)
             const newLines = lines.filter(l => !prevSet.has(l))
             if (newLines.length === 0) return prev
-            const combined = [...prev, ...newLines].slice(-500)
-            return combined
+            return [...prev, ...newLines].slice(-500)
           })
         }
       }
-    } catch { /* swallow */ }
+    } catch {}
   }, [])
 
   useEffect(() => {
@@ -499,289 +803,102 @@ function GatewayLogs() {
     return () => clearInterval(iv)
   }, [fetchLogs, isStreaming])
 
-  // Auto-scroll
   useEffect(() => {
-    if (isStreaming && logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: "smooth" })
-    }
+    if (isStreaming && logsEndRef.current) logsEndRef.current.scrollIntoView({ behavior: "smooth" })
   }, [logs, isStreaming])
 
-  const filteredLogs = filter
-    ? logs.filter(l => l.toLowerCase().includes(filter.toLowerCase()))
-    : logs
+  const filteredLogs = filter ? logs.filter(l => l.toLowerCase().includes(filter.toLowerCase())) : logs
 
   return (
     <div className="space-y-4">
-      {/* Controls */}
       <div className="flex items-center gap-3">
-        <input
-          type="text"
-          placeholder="Filter logs..."
-          value={filter}
-          onChange={e => setFilter(e.target.value)}
-          className="flex-1 h-8 px-3 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20 font-mono"
-          data-testid="logs-filter"
-        />
-        <Button
-          variant={isStreaming ? "default" : "outline"}
-          size="sm"
-          onClick={() => setIsStreaming(!isStreaming)}
-          data-testid="logs-stream-toggle"
-        >
+        <input type="text" placeholder="Filter logs..." value={filter} onChange={e => setFilter(e.target.value)}
+          className="flex-1 h-8 px-3 text-sm border rounded-md bg-background font-mono" />
+        <Button variant={isStreaming ? "default" : "outline"} size="sm" onClick={() => setIsStreaming(!isStreaming)}>
           <Circle className={`h-2.5 w-2.5 fill-current ${isStreaming ? "text-green-400" : "text-gray-400"}`} />
           {isStreaming ? "Streaming" : "Paused"}
         </Button>
         <Button variant="outline" size="sm" onClick={() => setLogs([])}>Clear</Button>
       </div>
-
-      {/* Log viewer */}
-      <div
-        ref={containerRef}
-        className="bg-gray-950 text-gray-200 rounded-lg p-4 font-mono text-xs leading-5 overflow-auto"
-        style={{ height: "500px" }}
-        data-testid="logs-viewer"
-      >
+      <div className="bg-gray-950 text-gray-200 rounded-lg p-4 font-mono text-xs leading-5 overflow-auto" style={{ height: "500px" }}>
         {filteredLogs.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-gray-500">
-            {logs.length === 0 ? (
-              <div className="text-center">
-                <ScrollText className="h-8 w-8 mx-auto mb-2 opacity-40" />
-                <p>Connecting to gateway logs...</p>
-                <p className="text-[10px] mt-1">Logs will appear here when available</p>
-              </div>
-            ) : (
-              <p>No logs match filter &quot;{filter}&quot;</p>
-            )}
+          <div className="flex items-center justify-center h-full text-gray-500 text-center">
+            <div><ScrollText className="h-8 w-8 mx-auto mb-2 opacity-40" /><p>Waiting for logs...</p></div>
           </div>
-        ) : (
-          filteredLogs.map((line, i) => (
-            <div
-              key={i}
-              className={`py-0.5 ${
-                line.includes("ERROR") || line.includes("error")
-                  ? "text-red-400"
-                  : line.includes("WARN") || line.includes("warn")
-                  ? "text-yellow-400"
-                  : line.includes("INFO") || line.includes("info")
-                  ? "text-blue-300"
-                  : ""
-              }`}
-            >
-              {line}
-            </div>
-          ))
-        )}
+        ) : filteredLogs.map((line, i) => (
+          <div key={i} className={`py-0.5 ${line.includes("ERROR") ? "text-red-400" : line.includes("WARN") ? "text-yellow-400" : line.includes("INFO") ? "text-blue-300" : ""}`}>
+            {line}
+          </div>
+        ))}
         <div ref={logsEndRef} />
       </div>
-
-      <p className="text-[10px] text-muted-foreground">
-        {filteredLogs.length} lines • {isStreaming ? "Refreshing every 3s" : "Paused"} • Last 500 lines kept
-      </p>
+      <p className="text-[10px] text-muted-foreground">{filteredLogs.length} lines • {isStreaming ? "3s refresh" : "Paused"}</p>
     </div>
   )
 }
 
 /* ── Config Section Renderer ──────────────────────── */
 
-function ConfigSection({
-  data,
-  path,
-  onUpdate,
-  depth = 0,
-}: {
-  data: any
-  path: string[]
-  onUpdate: (path: string[], value: any) => void
-  depth?: number
-}) {
-  if (data == null) return <p className="text-sm text-muted-foreground italic">No configuration data</p>
-
+function ConfigSection({ data, path, onUpdate, depth = 0 }: { data: any; path: string[]; onUpdate: (p: string[], v: any) => void; depth?: number }) {
+  if (data == null) return <p className="text-sm text-muted-foreground italic">No data</p>
   if (Array.isArray(data)) {
-    return (
-      <div className="space-y-3">
-        {data.length === 0 ? (
-          <p className="text-sm text-muted-foreground italic">Empty list</p>
-        ) : (
-          data.map((item, idx) => (
-            <Card key={idx}>
-              <CardContent className="p-4">
-                <p className="text-label mb-2">Item {idx + 1}</p>
-                <ConfigSection data={item} path={[...path, String(idx)]} onUpdate={onUpdate} depth={depth + 1} />
-              </CardContent>
-            </Card>
-          ))
-        )}
-      </div>
-    )
+    return <div className="space-y-3">{data.length === 0 ? <p className="text-sm text-muted-foreground italic">Empty</p> : data.map((item, idx) => (
+      <Card key={idx}><CardContent className="p-4"><p className="text-label mb-2">Item {idx + 1}</p>
+        <ConfigSection data={item} path={[...path, String(idx)]} onUpdate={onUpdate} depth={depth + 1} />
+      </CardContent></Card>
+    ))}</div>
   }
-
   if (typeof data === "object") {
     const entries = Object.entries(data)
     if (entries.length === 0) return <p className="text-sm text-muted-foreground italic">Empty</p>
-
-    return (
-      <div className="space-y-4">
-        {entries.map(([key, value]) => {
-          if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-            return (
-              <CollapsibleField key={key} label={key} depth={depth}>
-                <ConfigSection data={value} path={[...path, key]} onUpdate={onUpdate} depth={depth + 1} />
-              </CollapsibleField>
-            )
-          }
-          if (Array.isArray(value)) {
-            return (
-              <CollapsibleField key={key} label={`${key} (${value.length})`} depth={depth}>
-                <ConfigSection data={value} path={[...path, key]} onUpdate={onUpdate} depth={depth + 1} />
-              </CollapsibleField>
-            )
-          }
-          return <FieldRow key={key} label={key} value={value} onChange={(v) => onUpdate([...path, key], v)} />
-        })}
-      </div>
-    )
+    return <div className="space-y-4">{entries.map(([key, value]) => {
+      if (typeof value === "object" && value !== null && !Array.isArray(value)) return (
+        <CollapsibleField key={key} label={key} depth={depth}><ConfigSection data={value} path={[...path, key]} onUpdate={onUpdate} depth={depth + 1} /></CollapsibleField>
+      )
+      if (Array.isArray(value)) return (
+        <CollapsibleField key={key} label={`${key} (${value.length})`} depth={depth}><ConfigSection data={value} path={[...path, key]} onUpdate={onUpdate} depth={depth + 1} /></CollapsibleField>
+      )
+      return <FieldRow key={key} label={key} value={value} onChange={v => onUpdate([...path, key], v)} />
+    })}</div>
   }
-
-  return <FieldRow label="value" value={data} onChange={(v) => onUpdate(path, v)} />
+  return <FieldRow label="value" value={data} onChange={v => onUpdate(path, v)} />
 }
-
-/* ── Collapsible Section ─────────────────────────── */
 
 function CollapsibleField({ label, children, depth }: { label: string; children: React.ReactNode; depth: number }) {
   const [open, setOpen] = useState(depth < 2)
   return (
     <div className="border rounded-lg overflow-hidden">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm font-medium hover:bg-muted/30 transition-colors text-left"
-      >
-        <ChevronRight className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-90" : ""}`} />
-        <span>{label}</span>
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center gap-2 px-4 py-2.5 text-sm font-medium hover:bg-muted/30 transition-colors text-left">
+        <ChevronRight className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-90" : ""}`} /><span>{label}</span>
       </button>
       {open && <div className="px-4 pb-4 pt-1 border-t bg-muted/10">{children}</div>}
     </div>
   )
 }
 
-/* ── Field Row ──────────────────────────────────── */
-
 function FieldRow({ label, value, onChange }: { label: string; value: any; onChange: (v: any) => void }) {
   const isBool = typeof value === "boolean"
   const isNum = typeof value === "number"
   const isSensitive = /token|secret|key|password/i.test(label)
   const displayValue = isSensitive && typeof value === "string" && value.length > 8
-    ? value.slice(0, 4) + "•".repeat(Math.min(value.length - 8, 20)) + value.slice(-4)
-    : value
+    ? value.slice(0, 4) + "•".repeat(Math.min(value.length - 8, 20)) + value.slice(-4) : value
 
   return (
-    <div className="flex items-center gap-4 py-2" data-testid={`config-field-${label}`}>
-      <label className="text-sm text-muted-foreground w-48 shrink-0 font-mono text-xs">{label}</label>
+    <div className="flex items-center gap-4 py-2">
+      <label className="text-muted-foreground w-48 shrink-0 font-mono text-xs">{label}</label>
       <div className="flex-1">
         {isBool ? (
-          <button
-            onClick={() => onChange(!value)}
-            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${value ? "bg-foreground" : "bg-border"}`}
-          >
+          <button onClick={() => onChange(!value)} className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${value ? "bg-foreground" : "bg-border"}`}>
             <span className={`inline-block h-3.5 w-3.5 rounded-full bg-background transition-transform ${value ? "ml-[18px]" : "ml-[2px]"}`} />
           </button>
         ) : isNum ? (
-          <input
-            type="number"
-            value={value}
-            onChange={e => onChange(Number(e.target.value))}
-            className="w-full max-w-xs h-8 px-3 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20 font-mono"
-          />
+          <input type="number" value={value} onChange={e => onChange(Number(e.target.value))} className="w-full max-w-xs h-8 px-3 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20 font-mono" />
         ) : isSensitive ? (
-          <div className="flex items-center gap-2">
-            <code className="text-xs bg-muted px-2 py-1 rounded font-mono text-muted-foreground">{displayValue}</code>
-            <Badge variant="outline" className="text-[10px]">sensitive</Badge>
-          </div>
+          <div className="flex items-center gap-2"><code className="text-xs bg-muted px-2 py-1 rounded font-mono text-muted-foreground">{displayValue}</code><Badge variant="outline" className="text-[10px]">sensitive</Badge></div>
         ) : (
-          <input
-            type="text"
-            value={String(value ?? "")}
-            onChange={e => onChange(e.target.value)}
-            className="w-full max-w-lg h-8 px-3 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20 font-mono"
-          />
+          <input type="text" value={String(value ?? "")} onChange={e => onChange(e.target.value)} className="w-full max-w-lg h-8 px-3 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20 font-mono" />
         )}
       </div>
     </div>
-  )
-}
-
-/* ── Add Agent Form ─────────────────────────────── */
-
-function AddAgentForm({ onAdd, onCancel }: { onAdd: (agent: any) => void; onCancel: () => void }) {
-  const [form, setForm] = useState({
-    id: "", name: "", model: "anthropic/claude-sonnet-4-5-20250514", emoji: "🤖", theme: "", workspace: "",
-  })
-  const canSubmit = form.id.trim() && form.name.trim()
-
-  const handleSubmit = () => {
-    if (!canSubmit) return
-    const cleanId = form.id.toLowerCase().replace(/[^a-z0-9-]/g, "")
-    const basePath = "~/.openclaw"
-    onAdd({
-      id: cleanId,
-      name: form.name,
-      workspace: form.workspace || `${basePath}/workspace-${cleanId}`,
-      agentDir: `${basePath}/agents/${cleanId}/agent`,
-      model: { primary: form.model },
-      identity: { name: form.name, emoji: form.emoji, theme: form.theme || `${form.name} agent` },
-      tools: { allow: ["exec", "read", "write", "edit", "sessions_list", "sessions_send", "session_status", "message"] },
-    })
-  }
-
-  return (
-    <Card>
-      <CardContent className="p-5 space-y-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold">New Agent</h3>
-          <button onClick={onCancel} className="p-1 rounded hover:bg-muted text-muted-foreground"><X className="h-4 w-4" /></button>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="text-label mb-1 block">Agent ID *</label>
-            <input type="text" placeholder="e.g. devops" value={form.id} onChange={e => setForm({ ...form, id: e.target.value })}
-              className="w-full h-8 px-3 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20 font-mono" data-testid="new-agent-id" />
-            <p className="text-[10px] text-muted-foreground mt-1">Lowercase, no spaces</p>
-          </div>
-          <div>
-            <label className="text-label mb-1 block">Name *</label>
-            <input type="text" placeholder="e.g. Atlas" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })}
-              className="w-full h-8 px-3 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20" data-testid="new-agent-name" />
-          </div>
-          <div>
-            <label className="text-label mb-1 block">Emoji</label>
-            <input type="text" value={form.emoji} onChange={e => setForm({ ...form, emoji: e.target.value })}
-              className="w-20 h-8 px-3 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20 text-center text-lg" />
-          </div>
-          <div>
-            <label className="text-label mb-1 block">Model</label>
-            <select value={form.model} onChange={e => setForm({ ...form, model: e.target.value })}
-              className="w-full h-8 px-3 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20" data-testid="new-agent-model">
-              {MODELS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-            </select>
-          </div>
-          <div className="col-span-2">
-            <label className="text-label mb-1 block">Theme / Description</label>
-            <input type="text" placeholder="e.g. infrastructure and deployment specialist" value={form.theme} onChange={e => setForm({ ...form, theme: e.target.value })}
-              className="w-full h-8 px-3 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20" />
-          </div>
-          <div className="col-span-2">
-            <label className="text-label mb-1 block">Workspace Path</label>
-            <input type="text" placeholder={`~/.openclaw/workspace-${form.id || "agent"}`} value={form.workspace} onChange={e => setForm({ ...form, workspace: e.target.value })}
-              className="w-full h-8 px-3 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20 font-mono text-xs" />
-            <p className="text-[10px] text-muted-foreground mt-1">Leave empty for default path</p>
-          </div>
-        </div>
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
-          <Button size="sm" disabled={!canSubmit} onClick={handleSubmit} data-testid="add-agent-submit">
-            <Plus className="h-3.5 w-3.5" /> Add Agent
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
   )
 }
