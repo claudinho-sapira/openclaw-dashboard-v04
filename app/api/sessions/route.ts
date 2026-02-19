@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { gatewayInvokeTool } from "@/lib/gateway";
+import { getAgentIdentities, resolveIdentity } from "@/lib/agent-identity";
 
 export async function GET(request: NextRequest) {
   try {
@@ -13,24 +14,17 @@ export async function GET(request: NextRequest) {
     const agentFilter = searchParams.get("agent") || "";
     const limit = parseInt(searchParams.get("limit") || "50");
 
-    const result = await gatewayInvokeTool("sessions_list", {
-      limit,
-      messageLimit: 3,
-    });
+    const [identityMap, result] = await Promise.all([
+      getAgentIdentities(),
+      gatewayInvokeTool("sessions_list", { limit, messageLimit: 3 }),
+    ]);
 
     const rawSessions = result?.details?.sessions || [];
-
-    // Parse and transform sessions
-    const identityMap: Record<string, { name: string; emoji: string; role: string }> = {
-      pm: { name: "Luna", emoji: "🎯", role: "Project Manager" },
-      builder: { name: "Bolt", emoji: "🔨", role: "Developer" },
-      qa: { name: "Iris", emoji: "🔍", role: "QA Engineer" },
-    };
 
     const sessions = rawSessions.map((s: any) => {
       const agentMatch = (s.key || "").match(/agent:([^:]+):/);
       const agentId = agentMatch ? agentMatch[1] : "unknown";
-      const identity = identityMap[agentId] || { name: agentId, emoji: "🤖", role: "Agent" };
+      const identity = resolveIdentity(identityMap, agentId);
 
       return {
         key: s.key,
@@ -50,7 +44,6 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    // Filter by agent if specified
     const filtered = agentFilter
       ? sessions.filter((s: any) => s.agentId === agentFilter)
       : sessions;
@@ -63,11 +56,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Failed to fetch sessions:", error);
     return NextResponse.json(
-      {
-        error: "Failed to fetch sessions from gateway",
-        details: error instanceof Error ? error.message : String(error),
-        gatewayOffline: true,
-      },
+      { error: "Failed to fetch sessions", details: error instanceof Error ? error.message : String(error), gatewayOffline: true },
       { status: 502 }
     );
   }

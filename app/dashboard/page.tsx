@@ -109,17 +109,14 @@ export default function DashboardPage() {
   const issuesBacklog = issues.filter(i => i.column === "backlog").length
   const totalTokens = agents.reduce((sum, a) => sum + a.tokensUsed, 0)
 
-  // Agent current issues
+  // Agent current issues — match by agent id or agent name (from identity)
   const getAgentCurrentIssue = (agentId: string) => {
-    const agentLabels: Record<string, string[]> = {
-      pm: ["luna", "pm"],
-      builder: ["bolt", "builder"],
-      qa: ["iris", "qa"],
-    }
-    const labels = agentLabels[agentId] || [agentId]
+    const agent = agents.find(a => a.id === agentId)
+    const agentName = agent?.identity?.name?.toLowerCase() || ""
+    const searchTerms = [agentId, agentName].filter(Boolean)
     return issues.find(i =>
       i.column === "in-progress" &&
-      i.labels.some(l => labels.includes(l.name.toLowerCase()))
+      i.labels.some(l => searchTerms.includes(l.name.toLowerCase()))
     )
   }
 
@@ -291,12 +288,10 @@ export default function DashboardPage() {
                 <ul className="divide-y">
                   {sessions.map((session, idx) => {
                     const agentId = session.key?.match(/^agent:([^:]+)/)?.[1] || "unknown"
-                    const agentMap: Record<string, { emoji: string; name: string }> = {
-                      pm: { emoji: "🎯", name: "Luna" },
-                      builder: { emoji: "🔨", name: "Bolt" },
-                      qa: { emoji: "🔍", name: "Iris" },
-                    }
-                    const agent = agentMap[agentId] || { emoji: "🤖", name: agentId }
+                    const agentData = agents.find(a => a.id === agentId)
+                    const agent = agentData
+                      ? { emoji: agentData.identity?.emoji || "🤖", name: agentData.identity?.name || agentId }
+                      : { emoji: "🤖", name: agentId }
 
                     // Derive event type from session key
                     let eventLabel = session.channel || "activity"

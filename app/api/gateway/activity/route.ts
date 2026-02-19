@@ -1,10 +1,8 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { gatewayInvokeTool } from "@/lib/gateway";
+import { getAgentIdentities, resolveIdentity } from "@/lib/agent-identity";
 
-/**
- * Get recent activity from all agents via gateway sessions
- */
 export async function GET() {
   try {
     const session = await auth();
@@ -12,37 +10,21 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    // Get all sessions with recent messages
-    const result = await gatewayInvokeTool("sessions_list", {
-      limit: 100,
-      messageLimit: 20, // Get last 20 messages per session
-    });
+    const [identityMap, result] = await Promise.all([
+      getAgentIdentities(),
+      gatewayInvokeTool("sessions_list", { limit: 100, messageLimit: 20 }),
+    ]);
 
     const sessions = result?.details?.sessions || [];
-    
-    // Extract activity from sessions
     const activities: any[] = [];
-    
+
     sessions.forEach((s: any) => {
-      const sessionKey = s.key || "";
-      
-      // Parse agent from session key
-      const agentMatch = sessionKey.match(/agent:([^:]+):/);
+      const agentMatch = (s.key || "").match(/agent:([^:]+):/);
       if (!agentMatch) return;
-      
+
       const agentId = agentMatch[1];
-      const identityMap: Record<string, { name: string; emoji: string }> = {
-        pm: { name: "Luna", emoji: "🎯" },
-        builder: { name: "Bolt", emoji: "🔨" },
-        qa: { name: "Iris", emoji: "🔍" },
-      };
-      
-      const identity = identityMap[agentId] || {
-        name: agentId.charAt(0).toUpperCase() + agentId.slice(1),
-        emoji: "🤖",
-      };
-      
-      // Add session activity
+      const identity = resolveIdentity(identityMap, agentId);
+
       activities.push({
         id: `session-${s.key}`,
         type: "session",
@@ -57,13 +39,10 @@ export async function GET() {
         status: "active",
       });
     });
-    
-    // Sort by timestamp descending (most recent first)
-    activities.sort((a, b) => 
-      new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-    );
 
-    return NextResponse.json({ 
+    activities.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+    return NextResponse.json({
       activities,
       count: activities.length,
       timestamp: new Date().toISOString(),
@@ -71,10 +50,7 @@ export async function GET() {
   } catch (error) {
     console.error("Failed to fetch gateway activity:", error);
     return NextResponse.json(
-      { 
-        error: "Failed to fetch gateway activity",
-        details: error instanceof Error ? error.message : String(error),
-      },
+      { error: "Failed to fetch gateway activity", details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
     );
   }
