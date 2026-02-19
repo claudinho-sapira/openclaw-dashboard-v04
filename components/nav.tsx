@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { LayoutDashboard, Users, Kanban, Settings, LogOut, Terminal } from "lucide-react"
+import { LayoutDashboard, Users, Kanban, Settings, LogOut, Terminal, Settings2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { KeyboardShortcutHint } from "@/components/keyboard-shortcut-hint"
@@ -29,6 +29,11 @@ const navItems = [
     title: "Logs",
     href: "/logs",
     icon: Terminal,
+  },
+  {
+    title: "Config",
+    href: "/config",
+    icon: Settings2,
   },
   {
     title: "Settings",
