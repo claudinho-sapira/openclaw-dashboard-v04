@@ -2,12 +2,13 @@ import type { Metadata } from "next"
 import { Inter } from "next/font/google"
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
+import { AppHeader } from "./app-header"
 
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
   title: "OpenClaw Dashboard v0.3",
-  description: "Management dashboard for OpenClaw agents — Design System",
+  description: "Management dashboard for OpenClaw agents",
 }
 
 export default function RootLayout({
@@ -24,7 +25,8 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {children}
+          <AppHeader />
+          <main>{children}</main>
         </ThemeProvider>
       </body>
     </html>
