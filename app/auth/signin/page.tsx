@@ -127,7 +127,7 @@ function SignInForm() {
                 </Label>
                 <Input
                   id="email"
-                  type="email"
+                  type="text"
                   placeholder="you@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
