@@ -8,12 +8,13 @@ import {
   RefreshCw, Save, Settings2, Users, MessageSquare, Zap, Shield, Terminal,
   Loader2, CheckCircle2, AlertCircle, ChevronRight, ChevronDown, Package, Plus, X,
   Trash2, ScrollText, Circle, FileText, History, ListTodo, Eye, Code,
+  Clock, Play, Pencil, Power, Timer,
 } from "lucide-react"
 
 /* ── Types ──────────────────────────────────────────── */
 type ConfigData = Record<string, any>
 type AgentInfo = { id: string; name: string; emoji: string; workspace: string }
-type SubTab = "configuration" | "workspace-files" | "sessions" | "backlog" | "task-history"
+type SubTab = "configuration" | "workspace-files" | "sessions" | "cron-jobs" | "backlog" | "task-history"
 
 const GLOBAL_SECTIONS = [
   { id: "gateway", label: "Gateway", icon: <Settings2 className="h-4 w-4" /> },
@@ -29,6 +30,7 @@ const SUB_TABS: { id: SubTab; label: string; icon: React.ReactNode }[] = [
   { id: "configuration", label: "Configuration", icon: <Settings2 className="h-3.5 w-3.5" /> },
   { id: "workspace-files", label: "Workspace Files", icon: <FileText className="h-3.5 w-3.5" /> },
   { id: "sessions", label: "Sessions & Logs", icon: <ScrollText className="h-3.5 w-3.5" /> },
+  { id: "cron-jobs" as SubTab, label: "Cron Jobs", icon: <Timer className="h-3.5 w-3.5" /> },
   { id: "backlog", label: "Backlog", icon: <ListTodo className="h-3.5 w-3.5" /> },
   { id: "task-history", label: "Task History", icon: <History className="h-3.5 w-3.5" /> },
 ]
@@ -366,6 +368,9 @@ function AgentContent({ agentId, agent, subTab, config, onUpdate, onDeleteAgent 
       {subTab === "sessions" && (
         <AgentSessions agentId={agentId} />
       )}
+      {subTab === "cron-jobs" && (
+        <AgentCronJobs agentId={agentId} />
+      )}
       {subTab === "backlog" && (
         <AgentBacklog agentId={agentId} agentName={agent.name} />
       )}
@@ -602,7 +607,326 @@ function AgentSessions({ agentId }: { agentId: string }) {
   )
 }
 
-/* ── Sub-tab 4: Backlog ───────────────────────────── */
+/* ── Sub-tab 4: Cron Jobs ─────────────────────────── */
+
+interface CronJob {
+  id: string; agentId: string; name: string; enabled: boolean
+  createdAtMs: number; updatedAtMs: number
+  schedule: { kind: string; everyMs?: number; expr?: string; tz?: string; at?: string; anchorMs?: number }
+  sessionTarget: string; wakeMode?: string
+  payload: { kind: string; text?: string; message?: string }
+  state: { lastRunAtMs?: number; lastStatus?: string; nextRunAtMs?: number; lastError?: string; lastDurationMs?: number }
+}
+
+function formatSchedule(s: CronJob["schedule"]): string {
+  if (!s) return "—"
+  if (s.kind === "every") {
+    const ms = s.everyMs || 0
+    if (ms >= 3600000) return `Every ${Math.round(ms / 3600000)}h`
+    return `Every ${Math.round(ms / 60000)}m`
+  }
+  if (s.kind === "cron") return s.expr || "—"
+  if (s.kind === "at") return s.at ? new Date(s.at).toLocaleString() : "—"
+  return s.kind
+}
+
+function cronStatusBadge(job: CronJob) {
+  if (!job.enabled) return <Badge className="bg-gray-100 text-gray-600 text-[10px]">disabled</Badge>
+  const st = job.state?.lastStatus || ""
+  if (st === "error" || st === "failed") return <Badge className="bg-red-50 text-red-600 text-[10px]">error</Badge>
+  return <Badge className="bg-green-50 text-green-600 text-[10px]">active</Badge>
+}
+
+function timeSince(ms?: number): string {
+  if (!ms) return "—"
+  const diff = Date.now() - ms
+  if (diff < 60000) return `${Math.floor(diff / 1000)}s ago`
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`
+  if (diff < 86400000) return `${Math.floor(diff / 3600000)}h ago`
+  return `${Math.floor(diff / 86400000)}d ago`
+}
+
+function AgentCronJobs({ agentId }: { agentId: string }) {
+  const [jobs, setJobs] = useState<CronJob[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [showDialog, setShowDialog] = useState(false)
+  const [editJob, setEditJob] = useState<CronJob | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+
+  const fetchJobs = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/cron?agentId=${agentId}`)
+      if (res.ok) {
+        const data = await res.json()
+        setJobs(data.jobs || [])
+      }
+    } catch {} finally { setIsLoading(false) }
+  }, [agentId])
+
+  useEffect(() => { fetchJobs() }, [fetchJobs])
+
+  const toggleEnabled = async (job: CronJob) => {
+    await fetch(`/api/cron/${job.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: !job.enabled }),
+    })
+    fetchJobs()
+  }
+
+  const runNow = async (jobId: string) => {
+    await fetch(`/api/cron/${jobId}/run`, { method: "POST" })
+    fetchJobs()
+  }
+
+  const deleteJob = async (jobId: string) => {
+    await fetch(`/api/cron/${jobId}`, { method: "DELETE" })
+    setDeleteConfirm(null)
+    fetchJobs()
+  }
+
+  const handleSave = async (jobData: Partial<CronJob>) => {
+    if (editJob) {
+      await fetch(`/api/cron/${editJob.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(jobData),
+      })
+    } else {
+      await fetch("/api/cron", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...jobData, agentId }),
+      })
+    }
+    setShowDialog(false)
+    setEditJob(null)
+    fetchJobs()
+  }
+
+  if (isLoading) return <div className="flex items-center justify-center py-12 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading cron jobs...</div>
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-label">Cron Jobs</p>
+          <p className="text-[10px] text-muted-foreground">{jobs.length} job{jobs.length !== 1 ? "s" : ""} configured</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={fetchJobs}><RefreshCw className="h-3.5 w-3.5" /></Button>
+          <Button size="sm" onClick={() => { setEditJob(null); setShowDialog(true) }} data-testid="cron-create-btn">
+            <Plus className="h-3.5 w-3.5 mr-1" /> New Job
+          </Button>
+        </div>
+      </div>
+
+      {jobs.length === 0 ? (
+        <Card><CardContent className="py-12 text-center text-muted-foreground text-sm">
+          <Timer className="h-6 w-6 mx-auto mb-2 opacity-40" />
+          No cron jobs configured for this agent
+        </CardContent></Card>
+      ) : (
+        <div className="border rounded-lg overflow-hidden">
+          <table className="w-full text-xs" data-testid="cron-jobs-table">
+            <thead>
+              <tr className="border-b bg-muted/30">
+                <th className="text-left font-medium px-3 py-2.5">Name</th>
+                <th className="text-left font-medium px-3 py-2.5">Schedule</th>
+                <th className="text-left font-medium px-3 py-2.5">Target</th>
+                <th className="text-left font-medium px-3 py-2.5">Last Run</th>
+                <th className="text-left font-medium px-3 py-2.5">Status</th>
+                <th className="text-right font-medium px-3 py-2.5">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {jobs.map(job => (
+                <tr key={job.id} className={`hover:bg-muted/20 transition-colors ${!job.enabled ? "opacity-50" : ""}`} data-testid={`cron-job-${job.id}`}>
+                  <td className="px-3 py-2.5">
+                    <span className="font-medium font-mono">{job.name}</span>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <span className="font-mono text-muted-foreground">{formatSchedule(job.schedule)}</span>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <Badge variant="outline" className="text-[9px]">{job.sessionTarget}</Badge>
+                  </td>
+                  <td className="px-3 py-2.5 text-muted-foreground">
+                    {timeSince(job.state?.lastRunAtMs)}
+                  </td>
+                  <td className="px-3 py-2.5">{cronStatusBadge(job)}</td>
+                  <td className="px-3 py-2.5">
+                    <div className="flex items-center justify-end gap-1">
+                      <button onClick={() => toggleEnabled(job)} className="p-1.5 rounded hover:bg-muted/50 transition-colors" title={job.enabled ? "Disable" : "Enable"} data-testid={`cron-toggle-${job.id}`}>
+                        <Power className={`h-3.5 w-3.5 ${job.enabled ? "text-green-500" : "text-gray-400"}`} />
+                      </button>
+                      <button onClick={() => { setEditJob(job); setShowDialog(true) }} className="p-1.5 rounded hover:bg-muted/50 transition-colors" title="Edit" data-testid={`cron-edit-${job.id}`}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button onClick={() => runNow(job.id)} className="p-1.5 rounded hover:bg-muted/50 transition-colors" title="Run Now" data-testid={`cron-run-${job.id}`}>
+                        <Play className="h-3.5 w-3.5" />
+                      </button>
+                      {deleteConfirm === job.id ? (
+                        <div className="flex items-center gap-1 ml-1">
+                          <button onClick={() => deleteJob(job.id)} className="px-2 py-1 text-[10px] bg-red-500 text-white rounded hover:bg-red-600">Delete</button>
+                          <button onClick={() => setDeleteConfirm(null)} className="px-2 py-1 text-[10px] border rounded hover:bg-muted">Cancel</button>
+                        </div>
+                      ) : (
+                        <button onClick={() => setDeleteConfirm(job.id)} className="p-1.5 rounded hover:bg-red-50 transition-colors text-muted-foreground hover:text-red-500" title="Delete" data-testid={`cron-delete-${job.id}`}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Payload preview */}
+      {jobs.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[10px] text-muted-foreground uppercase tracking-wider font-semibold">Payload Preview</p>
+          {jobs.map(job => (
+            <details key={job.id} className="group">
+              <summary className="text-xs cursor-pointer text-muted-foreground hover:text-foreground flex items-center gap-2">
+                <ChevronRight className="h-3 w-3 group-open:rotate-90 transition-transform" />
+                <span className="font-mono">{job.name}</span>
+                <Badge variant="outline" className="text-[8px]">{job.payload?.kind}</Badge>
+              </summary>
+              <pre className="mt-1 ml-5 p-3 rounded-lg bg-muted/30 border text-[10px] font-mono whitespace-pre-wrap break-words max-h-32 overflow-auto">{job.payload?.text || job.payload?.message || "—"}</pre>
+            </details>
+          ))}
+        </div>
+      )}
+
+      {/* Create/Edit Dialog */}
+      {showDialog && (
+        <CronJobDialog
+          job={editJob}
+          onSave={handleSave}
+          onClose={() => { setShowDialog(false); setEditJob(null) }}
+        />
+      )}
+    </div>
+  )
+}
+
+/* ── Cron Job Dialog ──────────────────────────────── */
+
+function CronJobDialog({ job, onSave, onClose }: {
+  job: CronJob | null
+  onSave: (data: Partial<CronJob>) => void
+  onClose: () => void
+}) {
+  const [name, setName] = useState(job?.name || "")
+  const [scheduleKind, setScheduleKind] = useState(job?.schedule?.kind || "every")
+  const [everyMin, setEveryMin] = useState(Math.round((job?.schedule?.everyMs || 600000) / 60000))
+  const [cronExpr, setCronExpr] = useState(job?.schedule?.expr || "")
+  const [sessionTarget, setSessionTarget] = useState(job?.sessionTarget || "main")
+  const [payloadKind, setPayloadKind] = useState(job?.payload?.kind || "systemEvent")
+  const [payloadText, setPayloadText] = useState(job?.payload?.text || job?.payload?.message || "")
+  const [enabled, setEnabled] = useState(job?.enabled !== false)
+  const [saving, setSaving] = useState(false)
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    const schedule: any = { kind: scheduleKind }
+    if (scheduleKind === "every") schedule.everyMs = everyMin * 60000
+    else if (scheduleKind === "cron") schedule.expr = cronExpr
+
+    await onSave({
+      name,
+      enabled,
+      schedule,
+      sessionTarget,
+      payload: { kind: payloadKind, text: payloadText },
+    })
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" data-testid="cron-dialog">
+      <div className="w-full max-w-lg bg-background border rounded-xl shadow-lg p-6 mx-4">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-sm font-semibold">{job ? "Edit Cron Job" : "Create Cron Job"}</h3>
+          <button onClick={onClose} className="p-1 rounded hover:bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Name */}
+          <div>
+            <label className="text-xs font-medium block mb-1">Name</label>
+            <input value={name} onChange={e => setName(e.target.value)} required placeholder="my-job"
+              className="w-full h-9 px-3 text-sm border rounded-lg bg-background font-mono focus:outline-none focus:ring-1 focus:ring-foreground/20" data-testid="cron-name-input" />
+          </div>
+
+          {/* Schedule */}
+          <div>
+            <label className="text-xs font-medium block mb-1">Schedule</label>
+            <div className="flex gap-2">
+              <select value={scheduleKind} onChange={e => setScheduleKind(e.target.value)}
+                className="h-9 px-2 text-sm border rounded-lg bg-background" data-testid="cron-schedule-kind">
+                <option value="every">Every</option>
+                <option value="cron">Cron</option>
+              </select>
+              {scheduleKind === "every" ? (
+                <div className="flex items-center gap-2 flex-1">
+                  <input type="number" min={1} value={everyMin} onChange={e => setEveryMin(Number(e.target.value))}
+                    className="w-20 h-9 px-3 text-sm border rounded-lg bg-background font-mono focus:outline-none focus:ring-1 focus:ring-foreground/20" data-testid="cron-every-input" />
+                  <span className="text-xs text-muted-foreground">minutes</span>
+                </div>
+              ) : (
+                <input value={cronExpr} onChange={e => setCronExpr(e.target.value)} placeholder="*/5 * * * *"
+                  className="flex-1 h-9 px-3 text-sm border rounded-lg bg-background font-mono focus:outline-none focus:ring-1 focus:ring-foreground/20" data-testid="cron-expr-input" />
+              )}
+            </div>
+          </div>
+
+          {/* Session Target */}
+          <div>
+            <label className="text-xs font-medium block mb-1">Session Target</label>
+            <select value={sessionTarget} onChange={e => setSessionTarget(e.target.value)}
+              className="h-9 px-2 text-sm border rounded-lg bg-background w-full" data-testid="cron-target-select">
+              <option value="main">Main (systemEvent)</option>
+              <option value="isolated">Isolated (agentTurn)</option>
+            </select>
+          </div>
+
+          {/* Payload */}
+          <div>
+            <label className="text-xs font-medium block mb-1">Payload</label>
+            <textarea value={payloadText} onChange={e => setPayloadText(e.target.value)} rows={4} placeholder="Enter the message/prompt..."
+              className="w-full px-3 py-2 text-sm border rounded-lg bg-background font-mono resize-y focus:outline-none focus:ring-1 focus:ring-foreground/20" data-testid="cron-payload-input" />
+          </div>
+
+          {/* Enabled toggle */}
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-medium">Enabled</label>
+            <button type="button" onClick={() => setEnabled(!enabled)}
+              className={`relative w-9 h-5 rounded-full transition-colors ${enabled ? "bg-green-500" : "bg-gray-300"}`} data-testid="cron-enabled-toggle">
+              <span className={`inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform ${enabled ? "ml-[18px]" : "ml-[2px]"}`} />
+            </button>
+          </div>
+
+          {/* Actions */}
+          <div className="flex justify-end gap-2 pt-2 border-t">
+            <Button variant="outline" size="sm" type="button" onClick={onClose}>Cancel</Button>
+            <Button size="sm" type="submit" disabled={saving || !name} data-testid="cron-save-btn">
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+              {job ? "Update" : "Create"}
+            </Button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+/* ── Sub-tab 5: Backlog ───────────────────────────── */
 
 function AgentBacklog({ agentId, agentName }: { agentId: string; agentName: string }) {
   const [issues, setIssues] = useState<any[]>([])
