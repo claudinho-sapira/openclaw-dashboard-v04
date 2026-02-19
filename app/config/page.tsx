@@ -529,7 +529,7 @@ function AgentSessions({ agentId }: { agentId: string }) {
         const res = await fetch("/api/sessions")
         if (res.ok) {
           const data = await res.json()
-          const all = Array.isArray(data) ? data : []
+          const all = data.sessions || (Array.isArray(data) ? data : [])
           const filtered = all.filter((s: any) => {
             const key = s.sessionKey || s.key || ""
             return key.includes(`:${agentId}:`)
