@@ -32,10 +32,13 @@ interface FileContent {
 }
 
 const AVAILABLE_MODELS = [
+  { value: "anthropic/claude-opus-4-6", label: "Claude Opus 4 (2026)" },
   { value: "anthropic/claude-sonnet-4-5", label: "Claude Sonnet 4.5" },
   { value: "anthropic/claude-sonnet-4", label: "Claude Sonnet 4" },
-  { value: "anthropic/claude-opus-4", label: "Claude Opus 4" },
-  { value: "anthropic/claude-haiku-4", label: "Claude Haiku 4" },
+  { value: "anthropic/claude-haiku-3-5", label: "Claude Haiku 3.5" },
+  { value: "openai/gpt-4o", label: "GPT-4o" },
+  { value: "openai/o1", label: "OpenAI o1" },
+  { value: "google/gemini-2.0-flash", label: "Gemini 2.0 Flash" },
 ]
 
 export default function AgentDetailPage() {
@@ -49,6 +52,7 @@ export default function AgentDetailPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [selectedModel, setSelectedModel] = useState<string>("")
   const [isChangingModel, setIsChangingModel] = useState(false)
+  const [modelToast, setModelToast] = useState<{ type: "success" | "error"; message: string } | null>(null)
   
   // Workspace files state
   const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFile[]>([])
@@ -185,8 +189,12 @@ export default function AgentDetailPage() {
 
   const handleModelChange = async (newModel: string) => {
     if (!agentId || isChangingModel) return
+    const previousModel = selectedModel
 
     setIsChangingModel(true)
+    setSelectedModel(newModel) // Optimistic update
+    setModelToast(null)
+
     try {
       const response = await fetch(`/api/agents/${agentId}/model`, {
         method: "PATCH",
@@ -195,13 +203,23 @@ export default function AgentDetailPage() {
       })
 
       if (response.ok) {
-        setSelectedModel(newModel)
+        const data = await response.json()
         if (agent) {
           setAgent({ ...agent, model: newModel })
         }
+        setModelToast({ type: "success", message: `Model changed to ${newModel.split("/").pop()}` })
+        setTimeout(() => setModelToast(null), 4000)
+      } else {
+        // Revert on failure
+        setSelectedModel(previousModel)
+        const err = await response.json().catch(() => ({}))
+        setModelToast({ type: "error", message: err.error || "Failed to change model" })
+        setTimeout(() => setModelToast(null), 5000)
       }
     } catch (error) {
-      console.error("Failed to change model:", error)
+      setSelectedModel(previousModel)
+      setModelToast({ type: "error", message: "Network error — gateway unreachable" })
+      setTimeout(() => setModelToast(null), 5000)
     } finally {
       setIsChangingModel(false)
     }
@@ -326,6 +344,20 @@ export default function AgentDetailPage() {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground mt-2">Model</p>
+                {modelToast && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0 }}
+                    className={`text-xs mt-1 px-2 py-1 rounded ${
+                      modelToast.type === "success"
+                        ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                        : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                    }`}
+                  >
+                    {modelToast.type === "success" ? "✓" : "✗"} {modelToast.message}
+                  </motion.div>
+                )}
               </CardContent>
             </Card>
           </div>
