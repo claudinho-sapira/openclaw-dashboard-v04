@@ -1,558 +1,397 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Switch } from "@/components/ui/switch"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
-import { 
-  RefreshCw, Save, Code, Settings2, Users, Wrench, Shield, Zap, 
-  ChevronDown, ChevronRight, AlertCircle, CheckCircle2, Undo2 
+import { useEffect, useState, useCallback } from "react"
+import { Card, CardContent, Badge } from "@/components/ds"
+import { Button } from "@/components/ds/button"
+import {
+  RefreshCw, Save, Settings2, Users, MessageSquare, Zap, Shield, Terminal,
+  Loader2, CheckCircle2, AlertCircle, ChevronRight, Package,
 } from "lucide-react"
-import { motion } from "framer-motion"
 
-interface AgentConfig {
+/* ── Types ──────────────────────────────────────────── */
+
+type ConfigData = Record<string, any>
+
+interface Section {
   id: string
-  name: string
-  default?: boolean
-  workspace: string
-  agentDir: string
-  model: { primary: string; [key: string]: any }
-  identity: { name: string; theme: string; emoji: string }
-  tools?: { allow?: string[]; deny?: string[] }
-  subagents?: { allowAgents?: string[]; maxConcurrent?: number; archiveAfterMinutes?: number }
-  heartbeat?: { every?: string }
-  [key: string]: any
+  label: string
+  icon: React.ReactNode
+  description: string
 }
 
-interface OpenClawConfig {
-  meta?: { lastTouchedVersion?: string; lastTouchedAt?: string }
-  wizard?: any
-  agents?: {
-    defaults?: any
-    list?: AgentConfig[]
-  }
-  tools?: any
-  channels?: any
-  gateway?: any
-  skills?: any
-  plugins?: any
-  messages?: any
-  commands?: any
-  bindings?: any
-  [key: string]: any
-}
-
-const MODELS = [
-  "anthropic/claude-opus-4-6",
-  "anthropic/claude-sonnet-4-5",
-  "anthropic/claude-haiku-3-5",
-  "openai/gpt-4o",
-  "openai/o1",
-  "google/gemini-2.0-flash",
+const SECTIONS: Section[] = [
+  { id: "gateway", label: "Gateway", icon: <Settings2 className="h-4 w-4" />, description: "Gateway mode and authentication" },
+  { id: "agents", label: "Agents", icon: <Users className="h-4 w-4" />, description: "Agent defaults and configuration" },
+  { id: "channels", label: "Channels", icon: <MessageSquare className="h-4 w-4" />, description: "Slack, WhatsApp, and other channels" },
+  { id: "messages", label: "Messages", icon: <Zap className="h-4 w-4" />, description: "Message handling and reactions" },
+  { id: "commands", label: "Commands", icon: <Terminal className="h-4 w-4" />, description: "Native and skill commands" },
+  { id: "tools", label: "Tools", icon: <Package className="h-4 w-4" />, description: "Agent-to-agent and tool settings" },
+  { id: "skills", label: "Skills", icon: <Shield className="h-4 w-4" />, description: "Installed skills and entries" },
 ]
 
+/* ── Page ──────────────────────────────────────────── */
+
 export default function ConfigPage() {
-  const [config, setConfig] = useState<OpenClawConfig | null>(null)
-  const [rawJson, setRawJson] = useState("")
-  const [originalConfig, setOriginalConfig] = useState<string>("")
+  const [config, setConfig] = useState<ConfigData | null>(null)
+  const [editedConfig, setEditedConfig] = useState<ConfigData | null>(null)
+  const [activeSection, setActiveSection] = useState("gateway")
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">("idle")
-  const [error, setError] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState("visual")
-  const [expandedSections, setExpandedSections] = useState<Record<string, boolean>>({
-    agents: true, channels: false, tools: false, skills: false, gateway: false
-  })
   const [hasChanges, setHasChanges] = useState(false)
 
-  const fetchConfig = async () => {
-    setIsLoading(true)
+  const fetchConfig = useCallback(async () => {
     try {
       const res = await fetch("/api/config")
       if (res.ok) {
         const data = await res.json()
-        setConfig(data.config)
-        setRawJson(JSON.stringify(data.config, null, 2))
-        setOriginalConfig(JSON.stringify(data.config, null, 2))
-        setError(null)
+        const cfg = data.config || data
+        setConfig(cfg)
+        setEditedConfig(JSON.parse(JSON.stringify(cfg)))
         setHasChanges(false)
-      } else {
-        const err = await res.json().catch(() => ({}))
-        setError(err.details || err.error || "Failed to load config")
       }
-    } catch (err) {
-      setError("Network error: cannot reach dashboard API")
-    } finally {
+    } catch { /* swallow */ } finally {
       setIsLoading(false)
     }
-  }
+  }, [])
 
-  useEffect(() => { fetchConfig() }, [])
+  useEffect(() => { fetchConfig() }, [fetchConfig])
+
+  // Track changes
+  useEffect(() => {
+    if (config && editedConfig) {
+      setHasChanges(JSON.stringify(config) !== JSON.stringify(editedConfig))
+    }
+  }, [config, editedConfig])
 
   const saveConfig = async () => {
-    if (!config) return
+    if (!editedConfig) return
     setIsSaving(true)
     setSaveStatus("idle")
     try {
       const res = await fetch("/api/config", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config }),
+        body: JSON.stringify({ config: editedConfig }),
       })
       if (res.ok) {
-        setSaveStatus("success")
-        setOriginalConfig(JSON.stringify(config, null, 2))
+        setConfig(JSON.parse(JSON.stringify(editedConfig)))
         setHasChanges(false)
+        setSaveStatus("success")
         setTimeout(() => setSaveStatus("idle"), 3000)
       } else {
         setSaveStatus("error")
-        const err = await res.json().catch(() => ({}))
-        setError(err.details || "Failed to save config")
+        setTimeout(() => setSaveStatus("idle"), 5000)
       }
     } catch {
       setSaveStatus("error")
-      setError("Network error saving config")
+      setTimeout(() => setSaveStatus("idle"), 5000)
     } finally {
       setIsSaving(false)
     }
   }
 
-  const updateConfig = (path: string[], value: any) => {
-    if (!config) return
-    const newConfig = JSON.parse(JSON.stringify(config))
-    let obj: any = newConfig
-    for (let i = 0; i < path.length - 1; i++) {
-      obj = obj[path[i]]
-    }
-    obj[path[path.length - 1]] = value
-    setConfig(newConfig)
-    setRawJson(JSON.stringify(newConfig, null, 2))
-    setHasChanges(true)
-  }
-
-  const updateAgent = (agentIdx: number, field: string[], value: any) => {
-    updateConfig(["agents", "list", agentIdx.toString(), ...field], value)
-  }
-
-  const revertChanges = () => {
-    if (originalConfig) {
-      const parsed = JSON.parse(originalConfig)
-      setConfig(parsed)
-      setRawJson(originalConfig)
+  const resetChanges = () => {
+    if (config) {
+      setEditedConfig(JSON.parse(JSON.stringify(config)))
       setHasChanges(false)
     }
   }
 
-  const applyRawJson = () => {
-    try {
-      const parsed = JSON.parse(rawJson)
-      setConfig(parsed)
-      setHasChanges(true)
-      setError(null)
-    } catch (e) {
-      setError("Invalid JSON: " + (e instanceof Error ? e.message : String(e)))
+  // Update a nested field
+  const updateField = (path: string[], value: any) => {
+    if (!editedConfig) return
+    const updated = JSON.parse(JSON.stringify(editedConfig))
+    let obj = updated
+    for (let i = 0; i < path.length - 1; i++) {
+      if (!obj[path[i]]) obj[path[i]] = {}
+      obj = obj[path[i]]
     }
+    obj[path[path.length - 1]] = value
+    setEditedConfig(updated)
   }
 
-  const toggleSection = (key: string) => {
-    setExpandedSections(prev => ({ ...prev, [key]: !prev[key] }))
-  }
-
-  const SectionHeader = ({ id, title, icon: Icon, count }: { id: string; title: string; icon: any; count?: number }) => (
-    <button
-      onClick={() => toggleSection(id)}
-      className="flex items-center gap-3 w-full text-left py-3 px-4 hover:bg-muted/50 rounded-lg transition-colors"
-    >
-      <Icon className="h-5 w-5 text-primary" />
-      <span className="font-semibold flex-1">{title}</span>
-      {count !== undefined && <Badge variant="secondary">{count}</Badge>}
-      {expandedSections[id] ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-    </button>
-  )
+  const sectionData = editedConfig?.[activeSection] || {}
 
   return (
-    <>
+    <div className="max-w-7xl mx-auto px-6 py-8">
       {/* Header */}
-      <div className="border-b bg-muted/30">
-        <div className="container mx-auto px-6 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight">Config Editor</h1>
-              <p className="text-muted-foreground mt-1">
-                Edit OpenClaw gateway configuration • openclaw.json
-              </p>
-            </div>
-            <div className="flex items-center gap-3">
-              {hasChanges && (
-                <Badge variant="outline" className="text-yellow-600 border-yellow-500">
-                  Unsaved changes
-                </Badge>
-              )}
-              {saveStatus === "success" && (
-                <Badge variant="default" className="bg-green-600">
-                  <CheckCircle2 className="h-3 w-3 mr-1" /> Saved
-                </Badge>
-              )}
-              <Button variant="outline" size="sm" onClick={fetchConfig} disabled={isLoading}>
-                <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
-                Reload
-              </Button>
-              {hasChanges && (
-                <>
-                  <Button variant="outline" size="sm" onClick={revertChanges}>
-                    <Undo2 className="h-4 w-4 mr-2" />
-                    Revert
-                  </Button>
-                  <Button size="sm" onClick={saveConfig} disabled={isSaving}>
-                    <Save className="h-4 w-4 mr-2" />
-                    {isSaving ? "Saving..." : "Save"}
-                  </Button>
-                </>
-              )}
-            </div>
-          </div>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-display">Config</h1>
+          <p className="text-subtitle mt-1">OpenClaw gateway configuration</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {saveStatus === "success" && (
+            <span className="flex items-center gap-1.5 text-sm text-green-600">
+              <CheckCircle2 className="h-4 w-4" /> Saved
+            </span>
+          )}
+          {saveStatus === "error" && (
+            <span className="flex items-center gap-1.5 text-sm text-red-600">
+              <AlertCircle className="h-4 w-4" /> Save failed
+            </span>
+          )}
+          {hasChanges && (
+            <Button variant="ghost" size="sm" onClick={resetChanges}>
+              Reset
+            </Button>
+          )}
+          <Button
+            variant={hasChanges ? "default" : "outline"}
+            size="sm"
+            onClick={saveConfig}
+            disabled={!hasChanges || isSaving}
+            data-testid="config-save"
+          >
+            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            {isSaving ? "Saving..." : "Save Changes"}
+          </Button>
+          <Button variant="outline" size="sm" onClick={fetchConfig} disabled={isLoading}>
+            <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+          </Button>
         </div>
       </div>
 
-      <main className="container mx-auto px-6 py-8 max-w-5xl">
-        {/* Error Banner */}
-        {error && (
-          <Card className="mb-6 border-red-500/50 bg-red-50 dark:bg-red-950/20">
-            <CardContent className="pt-6">
-              <div className="flex items-center gap-3 text-red-600 dark:text-red-400">
-                <AlertCircle className="h-5 w-5 shrink-0" />
-                <div>
-                  <p className="font-semibold">Error</p>
-                  <p className="text-sm">{error}</p>
-                </div>
-                <Button variant="ghost" size="sm" className="ml-auto" onClick={() => setError(null)}>
-                  Dismiss
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-24 text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading config...
+        </div>
+      ) : !config ? (
+        <Card>
+          <CardContent className="py-12 text-center text-muted-foreground">
+            <AlertCircle className="h-8 w-8 mx-auto mb-3 opacity-40" />
+            <p>Could not load config from workspace server</p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-[220px_1fr] gap-6">
+          {/* Sidebar */}
+          <nav className="space-y-1" data-testid="config-sidebar">
+            {SECTIONS.map(section => {
+              const isActive = activeSection === section.id
+              const hasData = editedConfig?.[section.id] != null
+              return (
+                <button
+                  key={section.id}
+                  onClick={() => setActiveSection(section.id)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
+                    isActive
+                      ? "bg-foreground/5 text-foreground font-medium"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                  }`}
+                  data-testid={`config-section-${section.id}`}
+                >
+                  {section.icon}
+                  <span className="flex-1">{section.label}</span>
+                  {!hasData && <span className="text-[10px] text-muted-foreground">—</span>}
+                  {isActive && <ChevronRight className="h-3 w-3" />}
+                </button>
+              )
+            })}
+          </nav>
 
-        {isLoading ? (
-          <div className="flex items-center justify-center py-20">
-            <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
+          {/* Content */}
+          <div className="space-y-6" data-testid="config-content">
+            {/* Section header */}
+            <div className="pb-4 border-b">
+              <h2 className="text-title flex items-center gap-2">
+                {SECTIONS.find(s => s.id === activeSection)?.icon}
+                {SECTIONS.find(s => s.id === activeSection)?.label}
+              </h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                {SECTIONS.find(s => s.id === activeSection)?.description}
+              </p>
+            </div>
+
+            {/* Dynamic fields */}
+            <ConfigSection
+              data={sectionData}
+              path={[activeSection]}
+              onUpdate={updateField}
+            />
           </div>
-        ) : !config ? (
-          <Card>
-            <CardContent className="py-16 text-center text-muted-foreground">
-              <AlertCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
-              <p className="text-lg font-medium">Cannot load config</p>
-              <p className="text-sm mt-1">Check gateway connection</p>
-            </CardContent>
-          </Card>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── Config Section Renderer ──────────────────────── */
+
+function ConfigSection({
+  data,
+  path,
+  onUpdate,
+  depth = 0,
+}: {
+  data: any
+  path: string[]
+  onUpdate: (path: string[], value: any) => void
+  depth?: number
+}) {
+  if (data == null) {
+    return (
+      <p className="text-sm text-muted-foreground italic">No configuration data</p>
+    )
+  }
+
+  // If it's an array
+  if (Array.isArray(data)) {
+    return (
+      <div className="space-y-3">
+        {data.length === 0 ? (
+          <p className="text-sm text-muted-foreground italic">Empty list</p>
         ) : (
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-            <TabsList className="grid w-full grid-cols-2">
-              <TabsTrigger value="visual" className="flex items-center gap-2">
-                <Settings2 className="h-4 w-4" />
-                Visual Editor
-              </TabsTrigger>
-              <TabsTrigger value="json" className="flex items-center gap-2">
-                <Code className="h-4 w-4" />
-                Raw JSON
-              </TabsTrigger>
-            </TabsList>
-
-            {/* Visual Editor */}
-            <TabsContent value="visual" className="space-y-4">
-
-              {/* Agents Section */}
-              <Card>
-                <CardContent className="pt-4">
-                  <SectionHeader id="agents" title="Agents" icon={Users} count={config.agents?.list?.length || 0} />
-                  {expandedSections.agents && config.agents?.list?.map((agent, idx) => (
-                    <motion.div
-                      key={agent.id}
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      className="ml-8 mt-4 border rounded-lg p-4 space-y-4"
-                    >
-                      <div className="flex items-center gap-3 mb-4">
-                        <span className="text-2xl">{agent.identity?.emoji || "🤖"}</span>
-                        <div>
-                          <h3 className="font-semibold text-lg">{agent.identity?.name || agent.id}</h3>
-                          <p className="text-xs text-muted-foreground font-mono">{agent.id}</p>
-                        </div>
-                        {agent.default && <Badge variant="default">Default</Badge>}
-                      </div>
-
-                      {/* Identity */}
-                      <div className="grid grid-cols-3 gap-4">
-                        <div>
-                          <Label className="text-xs">Name</Label>
-                          <Input
-                            value={agent.identity?.name || ""}
-                            onChange={(e) => updateAgent(idx, ["identity", "name"], e.target.value)}
-                            className="mt-1"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Emoji</Label>
-                          <Input
-                            value={agent.identity?.emoji || ""}
-                            onChange={(e) => updateAgent(idx, ["identity", "emoji"], e.target.value)}
-                            className="mt-1"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Theme</Label>
-                          <Input
-                            value={agent.identity?.theme || ""}
-                            onChange={(e) => updateAgent(idx, ["identity", "theme"], e.target.value)}
-                            className="mt-1"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Model */}
-                      <div>
-                        <Label className="text-xs">Model</Label>
-                        <Select
-                          value={agent.model?.primary || ""}
-                          onValueChange={(v) => updateAgent(idx, ["model", "primary"], v)}
-                        >
-                          <SelectTrigger className="mt-1">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {MODELS.map(m => (
-                              <SelectItem key={m} value={m}>{m}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-
-                      {/* Paths */}
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <Label className="text-xs">Workspace</Label>
-                          <Input
-                            value={agent.workspace || ""}
-                            onChange={(e) => updateAgent(idx, ["workspace"], e.target.value)}
-                            className="mt-1 font-mono text-xs"
-                          />
-                        </div>
-                        <div>
-                          <Label className="text-xs">Agent Dir</Label>
-                          <Input
-                            value={agent.agentDir || ""}
-                            onChange={(e) => updateAgent(idx, ["agentDir"], e.target.value)}
-                            className="mt-1 font-mono text-xs"
-                          />
-                        </div>
-                      </div>
-
-                      {/* Tools */}
-                      {agent.tools && (
-                        <div>
-                          <Label className="text-xs">Allowed Tools</Label>
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {(agent.tools.allow || []).map((tool: string) => (
-                              <Badge key={tool} variant="secondary" className="text-xs">{tool}</Badge>
-                            ))}
-                          </div>
-                          {agent.tools.deny && agent.tools.deny.length > 0 && (
-                            <>
-                              <Label className="text-xs mt-2 block">Denied Tools</Label>
-                              <div className="flex flex-wrap gap-1 mt-1">
-                                {agent.tools.deny.map((tool: string) => (
-                                  <Badge key={tool} variant="destructive" className="text-xs">{tool}</Badge>
-                                ))}
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      )}
-
-                      <Separator />
-                    </motion.div>
-                  ))}
-                </CardContent>
-              </Card>
-
-              {/* Agent Defaults */}
-              {config.agents?.defaults && (
-                <Card>
-                  <CardContent className="pt-4">
-                    <SectionHeader id="defaults" title="Agent Defaults" icon={Zap} />
-                    {expandedSections.defaults && (
-                      <div className="ml-8 mt-4 space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <Label className="text-xs">Heartbeat Interval</Label>
-                            <Input
-                              value={config.agents.defaults.heartbeat?.every || ""}
-                              onChange={(e) => updateConfig(["agents", "defaults", "heartbeat", "every"], e.target.value)}
-                              className="mt-1"
-                              placeholder="30m"
-                            />
-                          </div>
-                          <div>
-                            <Label className="text-xs">Max Concurrent</Label>
-                            <Input
-                              type="number"
-                              value={config.agents.defaults.maxConcurrent || 4}
-                              onChange={(e) => updateConfig(["agents", "defaults", "maxConcurrent"], parseInt(e.target.value))}
-                              className="mt-1"
-                            />
-                          </div>
-                        </div>
-                        {config.agents.defaults.subagents && (
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <Label className="text-xs">Subagent Max Concurrent</Label>
-                              <Input
-                                type="number"
-                                value={config.agents.defaults.subagents.maxConcurrent || 8}
-                                onChange={(e) => updateConfig(["agents", "defaults", "subagents", "maxConcurrent"], parseInt(e.target.value))}
-                                className="mt-1"
-                              />
-                            </div>
-                            <div>
-                              <Label className="text-xs">Archive After (minutes)</Label>
-                              <Input
-                                type="number"
-                                value={config.agents.defaults.subagents.archiveAfterMinutes || 120}
-                                onChange={(e) => updateConfig(["agents", "defaults", "subagents", "archiveAfterMinutes"], parseInt(e.target.value))}
-                                className="mt-1"
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Channels */}
-              {config.channels && (
-                <Card>
-                  <CardContent className="pt-4">
-                    <SectionHeader id="channels" title="Channels" icon={Zap} count={Object.keys(config.channels).length} />
-                    {expandedSections.channels && Object.entries(config.channels).map(([channelName, channelConfig]: [string, any]) => (
-                      <div key={channelName} className="ml-8 mt-4 border rounded-lg p-4 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <h4 className="font-semibold capitalize">{channelName}</h4>
-                          <div className="flex items-center gap-2">
-                            <Label className="text-xs">Enabled</Label>
-                            <Switch
-                              checked={channelConfig.enabled !== false}
-                              onCheckedChange={(v) => updateConfig(["channels", channelName, "enabled"], v)}
-                            />
-                          </div>
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          {channelConfig.mode && (
-                            <div>
-                              <Label className="text-xs">Mode</Label>
-                              <Input value={channelConfig.mode} className="mt-1" disabled />
-                            </div>
-                          )}
-                          {channelConfig.groupPolicy && (
-                            <div>
-                              <Label className="text-xs">Group Policy</Label>
-                              <Input value={channelConfig.groupPolicy} className="mt-1" disabled />
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Skills */}
-              {config.skills?.entries && (
-                <Card>
-                  <CardContent className="pt-4">
-                    <SectionHeader id="skills" title="Skills" icon={Wrench} count={Object.keys(config.skills.entries).length} />
-                    {expandedSections.skills && Object.entries(config.skills.entries).map(([skillName, skillConfig]: [string, any]) => (
-                      <div key={skillName} className="ml-8 mt-3 flex items-center justify-between p-3 border rounded-lg">
-                        <div>
-                          <span className="font-medium">{skillName}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Label className="text-xs">Enabled</Label>
-                          <Switch
-                            checked={skillConfig.enabled !== false}
-                            onCheckedChange={(v) => updateConfig(["skills", "entries", skillName, "enabled"], v)}
-                          />
-                        </div>
-                      </div>
-                    ))}
-                  </CardContent>
-                </Card>
-              )}
-
-              {/* Gateway */}
-              {config.gateway && (
-                <Card>
-                  <CardContent className="pt-4">
-                    <SectionHeader id="gateway" title="Gateway" icon={Shield} />
-                    {expandedSections.gateway && (
-                      <div className="ml-8 mt-4 space-y-3">
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <Label className="text-xs">Mode</Label>
-                            <Input value={config.gateway.mode || ""} className="mt-1" disabled />
-                          </div>
-                          <div>
-                            <Label className="text-xs">Auth Mode</Label>
-                            <Input value={config.gateway.auth?.mode || ""} className="mt-1" disabled />
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              )}
-            </TabsContent>
-
-            {/* Raw JSON */}
-            <TabsContent value="json" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <CardTitle className="flex items-center gap-2">
-                        <Code className="h-5 w-5" />
-                        Raw JSON Editor
-                      </CardTitle>
-                      <CardDescription>Edit openclaw.json directly</CardDescription>
-                    </div>
-                    <Button size="sm" variant="outline" onClick={applyRawJson}>
-                      Apply to Visual Editor
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <textarea
-                    value={rawJson}
-                    onChange={(e) => {
-                      setRawJson(e.target.value)
-                      setHasChanges(true)
-                    }}
-                    className="w-full h-[600px] font-mono text-sm bg-black text-green-400 p-4 rounded-lg border resize-none focus:outline-none focus:ring-2 focus:ring-primary"
-                    spellCheck={false}
-                  />
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
+          data.map((item, idx) => (
+            <Card key={idx}>
+              <CardContent className="p-4">
+                <p className="text-label mb-2">Item {idx + 1}</p>
+                <ConfigSection
+                  data={item}
+                  path={[...path, String(idx)]}
+                  onUpdate={onUpdate}
+                  depth={depth + 1}
+                />
+              </CardContent>
+            </Card>
+          ))
         )}
-      </main>
-    </>
+      </div>
+    )
+  }
+
+  // If it's an object, render each key
+  if (typeof data === "object") {
+    const entries = Object.entries(data)
+    if (entries.length === 0) {
+      return <p className="text-sm text-muted-foreground italic">Empty</p>
+    }
+
+    return (
+      <div className="space-y-4">
+        {entries.map(([key, value]) => {
+          // Nested object → collapsible card
+          if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+            return (
+              <CollapsibleField key={key} label={key} depth={depth}>
+                <ConfigSection
+                  data={value}
+                  path={[...path, key]}
+                  onUpdate={onUpdate}
+                  depth={depth + 1}
+                />
+              </CollapsibleField>
+            )
+          }
+
+          // Array → show as nested
+          if (Array.isArray(value)) {
+            return (
+              <CollapsibleField key={key} label={`${key} (${value.length})`} depth={depth}>
+                <ConfigSection
+                  data={value}
+                  path={[...path, key]}
+                  onUpdate={onUpdate}
+                  depth={depth + 1}
+                />
+              </CollapsibleField>
+            )
+          }
+
+          // Primitive field
+          return (
+            <FieldRow
+              key={key}
+              label={key}
+              value={value}
+              onChange={(v) => onUpdate([...path, key], v)}
+            />
+          )
+        })}
+      </div>
+    )
+  }
+
+  // Primitive at root
+  return (
+    <FieldRow label="value" value={data} onChange={(v) => onUpdate(path, v)} />
+  )
+}
+
+/* ── Collapsible Section ─────────────────────────── */
+
+function CollapsibleField({ label, children, depth }: { label: string; children: React.ReactNode; depth: number }) {
+  const [open, setOpen] = useState(depth < 2)
+
+  return (
+    <div className="border rounded-lg overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 px-4 py-2.5 text-sm font-medium hover:bg-muted/30 transition-colors text-left"
+      >
+        <ChevronRight className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-90" : ""}`} />
+        <span>{label}</span>
+      </button>
+      {open && (
+        <div className="px-4 pb-4 pt-1 border-t bg-muted/10">
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── Field Row ──────────────────────────────────── */
+
+function FieldRow({ label, value, onChange }: { label: string; value: any; onChange: (v: any) => void }) {
+  const isBool = typeof value === "boolean"
+  const isNum = typeof value === "number"
+  const isSensitive = /token|secret|key|password/i.test(label)
+  const displayValue = isSensitive && typeof value === "string" && value.length > 8
+    ? value.slice(0, 4) + "•".repeat(Math.min(value.length - 8, 20)) + value.slice(-4)
+    : value
+
+  return (
+    <div className="flex items-center gap-4 py-2" data-testid={`config-field-${label}`}>
+      <label className="text-sm text-muted-foreground w-48 shrink-0 font-mono text-xs">
+        {label}
+      </label>
+      <div className="flex-1">
+        {isBool ? (
+          <button
+            onClick={() => onChange(!value)}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+              value ? "bg-foreground" : "bg-border"
+            }`}
+          >
+            <span className={`inline-block h-3.5 w-3.5 rounded-full bg-background transition-transform ${
+              value ? "translate-x-4.5 ml-[18px]" : "translate-x-0.5 ml-[2px]"
+            }`} />
+          </button>
+        ) : isNum ? (
+          <input
+            type="number"
+            value={value}
+            onChange={e => onChange(Number(e.target.value))}
+            className="w-full max-w-xs h-8 px-3 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20 font-mono"
+          />
+        ) : isSensitive ? (
+          <div className="flex items-center gap-2">
+            <code className="text-xs bg-muted px-2 py-1 rounded font-mono text-muted-foreground">
+              {displayValue}
+            </code>
+            <Badge variant="outline" className="text-[10px]">sensitive</Badge>
+          </div>
+        ) : (
+          <input
+            type="text"
+            value={String(value ?? "")}
+            onChange={e => onChange(e.target.value)}
+            className="w-full max-w-lg h-8 px-3 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20 font-mono"
+          />
+        )}
+      </div>
+    </div>
   )
 }
