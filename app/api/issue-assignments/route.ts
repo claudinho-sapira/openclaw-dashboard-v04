@@ -1,39 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
+import {
+  getAllAssignments,
+  upsertAssignment,
+  deleteAssignment,
+} from "@/lib/assignments-store";
 
 // GET all assignments
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const session = await auth();
     if (!session?.user) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const assignments = await prisma.issueAssignment.findMany();
-    
-    // Convert to map for easy lookup (includes both dev and qa agents)
-    const assignmentMap: Record<string, { dev: string; qa: string | null }> = {};
-    assignments.forEach(a => {
-      assignmentMap[a.issueId] = {
-        dev: a.agentName,
-        qa: a.qaAgent,
-      };
-    });
+    const assignments = getAllAssignments();
 
-    return NextResponse.json({ assignments: assignmentMap });
+    // Return in { issueId: { dev, qa } } format for frontend
+    const result: Record<string, { dev: string; qa: string | null }> = {};
+    for (const a of assignments) {
+      result[a.issueId] = { dev: a.agentName, qa: a.qaAgent };
+    }
+
+    return NextResponse.json(result);
   } catch (error) {
-    console.error("Failed to fetch issue assignments:", error);
+    console.error("Failed to fetch assignments:", error);
     return NextResponse.json(
-      { error: "Failed to fetch assignments" },
+      { error: "Failed to fetch assignments", details: String(error) },
       { status: 500 }
     );
   }
 }
 
-// POST/PUT assignment (upsert)
+// POST - create/update assignment
 export async function POST(request: NextRequest) {
   try {
     const session = await auth();
@@ -42,75 +41,27 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { issueId, agentName, qaAgent, role } = body;
+    const { issueId, agentName, role = "dev" } = body;
 
-    if (!issueId) {
+    if (!issueId || !agentName) {
       return NextResponse.json(
-        { error: "issueId is required" },
+        { error: "issueId and agentName required" },
         { status: 400 }
       );
     }
 
-    // Validate agent names
-    const validAgents = ["pm", "builder", "qa"];
-    if (agentName && !validAgents.includes(agentName)) {
-      return NextResponse.json(
-        { error: "Invalid agentName. Must be: pm, builder, or qa" },
-        { status: 400 }
-      );
-    }
-    if (qaAgent && !validAgents.includes(qaAgent)) {
-      return NextResponse.json(
-        { error: "Invalid qaAgent. Must be: pm, builder, or qa" },
-        { status: 400 }
-      );
-    }
-
-    // Build update data based on what's provided
-    const updateData: any = { updatedAt: new Date() };
-    const createData: any = { issueId };
-    
-    if (role === "qa") {
-      // Updating QA agent only
-      updateData.qaAgent = qaAgent || agentName;
-      createData.agentName = "builder"; // default dev agent
-      createData.qaAgent = qaAgent || agentName;
-    } else if (role === "dev") {
-      // Updating dev agent only
-      updateData.agentName = agentName;
-      createData.agentName = agentName;
-    } else {
-      // Legacy: update dev agent, optionally qa
-      if (agentName) {
-        updateData.agentName = agentName;
-        createData.agentName = agentName;
-      }
-      if (qaAgent) {
-        updateData.qaAgent = qaAgent;
-        createData.qaAgent = qaAgent;
-      }
-    }
-
-    // Upsert assignment
-    const assignment = await prisma.issueAssignment.upsert({
-      where: { issueId },
-      update: updateData,
-      create: createData,
-    });
-
-    console.log(`[Issue Assignment] ${issueId} → dev:${assignment.agentName} qa:${assignment.qaAgent}`);
-
-    return NextResponse.json({ success: true, assignment });
+    const assignment = upsertAssignment(issueId, agentName, role);
+    return NextResponse.json(assignment);
   } catch (error) {
-    console.error("Failed to save issue assignment:", error);
+    console.error("Failed to upsert assignment:", error);
     return NextResponse.json(
-      { error: "Failed to save assignment" },
+      { error: "Failed to save assignment", details: String(error) },
       { status: 500 }
     );
   }
 }
 
-// DELETE assignment
+// DELETE - remove assignment
 export async function DELETE(request: NextRequest) {
   try {
     const session = await auth();
@@ -122,23 +73,15 @@ export async function DELETE(request: NextRequest) {
     const issueId = searchParams.get("issueId");
 
     if (!issueId) {
-      return NextResponse.json(
-        { error: "issueId is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "issueId required" }, { status: 400 });
     }
 
-    await prisma.issueAssignment.delete({
-      where: { issueId },
-    });
-
-    console.log(`[Issue Assignment] Deleted assignment for ${issueId}`);
-
+    deleteAssignment(issueId);
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Failed to delete issue assignment:", error);
+    console.error("Failed to delete assignment:", error);
     return NextResponse.json(
-      { error: "Failed to delete assignment" },
+      { error: "Failed to delete", details: String(error) },
       { status: 500 }
     );
   }
