@@ -36,20 +36,43 @@ function SignInForm() {
     setError("")
 
     try {
+      // NextAuth v5: signIn with redirect: false returns a URL string or undefined
       const result = await signIn("credentials", {
         email,
         password,
         redirect: false,
+        callbackUrl,
       })
 
-      if (result?.error) {
-        setError("Invalid email or password")
-        setLoading(false)
-      } else {
-        router.push(callbackUrl)
+      // In v5 beta, result may be a string (redirect URL) on success, or undefined
+      if (typeof result === "string") {
+        // Success — redirect URL returned
+        router.push(result)
+        return
       }
-    } catch (err) {
-      setError("An error occurred during sign in")
+
+      // v4 compat: result might be { error, ok, url }
+      if (result && typeof result === "object") {
+        if ((result as any).error) {
+          setError("Invalid email or password")
+          setLoading(false)
+          return
+        }
+        if ((result as any).url) {
+          router.push((result as any).url)
+          return
+        }
+      }
+
+      // Fallback: if no error, try navigating
+      router.push(callbackUrl)
+    } catch (err: any) {
+      // NextAuth v5 may throw CredentialsSignin error
+      if (err?.message?.includes("CredentialsSignin") || err?.type === "CredentialsSignin") {
+        setError("Invalid email or password")
+      } else {
+        setError("Invalid email or password")
+      }
       setLoading(false)
     }
   }
