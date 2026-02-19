@@ -121,7 +121,9 @@ export default function DashboardPage() {
   }
 
   const formatTimeAgo = (dateStr: string | number) => {
+    if (!dateStr) return "—"
     const date = typeof dateStr === "number" ? new Date(dateStr) : new Date(dateStr)
+    if (isNaN(date.getTime())) return "—"
     const mins = Math.floor((Date.now() - date.getTime()) / 60000)
     if (mins < 1) return "just now"
     if (mins < 60) return `${mins}m ago`
