@@ -1,18 +1,14 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogDescription } from "@/components/ui/dialog"
-import { RefreshCw, Activity, ArrowRight, ExternalLink, Clock, AlertCircle, Zap, Plus, CheckCircle2 } from "lucide-react"
-import { motion, AnimatePresence } from "framer-motion"
+import { useEffect, useState, useCallback } from "react"
+import { Card, CardContent, Badge } from "@/components/ds"
+import { Button } from "@/components/ds/button"
+import {
+  RefreshCw, Clock, AlertCircle, Zap, ExternalLink, Loader2, GripVertical,
+} from "lucide-react"
 
-// Types
+/* ── Types ─────────────────────────────────────────────── */
+
 interface LinearIssue {
   id: string
   identifier: string
@@ -20,7 +16,7 @@ interface LinearIssue {
   description: string
   state: string
   stateType: string
-  column: "backlog" | "in-progress" | "done"
+  column: "backlog" | "in-progress" | "in-review" | "done"
   priority: number
   priorityLabel: string
   assignee: string | null
@@ -28,1190 +24,329 @@ interface LinearIssue {
   createdAt: string
   updatedAt: string
   url: string
-  labels: Array<{ id: string; name: string; color: string }>
+  labels: { id: string; name: string; color: string }[]
   isNext: boolean
 }
 
-interface AgentSession {
-  key: string
-  kind: string
-  channel: string
-  displayName: string
-  updatedAt: number
-  model: string
-  totalTokens: number
+interface Agent {
+  id: string
+  identity: { name: string; emoji: string; role: string }
+  status: string
 }
 
-interface AgentStatus {
-  agentId: string
-  agentName: string
-  agentEmoji: string
-  status: "active" | "idle" | "waiting"
-  sessionCount: number
-  lastActivity: string
-  sessions: AgentSession[]
+/* ── Column config ─────────────────────────────────────── */
+
+const COLUMNS = [
+  { id: "backlog", title: "Backlog", color: "bg-gray-400" },
+  { id: "in-progress", title: "In Progress", color: "bg-blue-500" },
+  { id: "in-review", title: "In Review / QA", color: "bg-amber-500" },
+  { id: "done", title: "Done", color: "bg-green-500" },
+] as const
+
+const AGENT_MAP: Record<string, { emoji: string; name: string }> = {
+  pm: { emoji: "🎯", name: "Luna" },
+  builder: { emoji: "🔨", name: "Bolt" },
+  qa: { emoji: "🔍", name: "Iris" },
 }
 
-const POLLING_INTERVAL = 60000 // 60 seconds (reduced from 15s to avoid rate limits)
+const POLL_INTERVAL = 30000
+
+/* ── Helpers ───────────────────────────────────────────── */
+
+function priorityDot(p: number) {
+  if (p === 0) return "🔴"
+  if (p === 1) return "🟠"
+  if (p === 2) return "🟡"
+  if (p === 3) return "🔵"
+  return "⚪"
+}
+
+function timeAgo(dateStr: string) {
+  const mins = Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000)
+  if (mins < 1) return "now"
+  if (mins < 60) return `${mins}m`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h`
+  return `${Math.floor(hrs / 24)}d`
+}
+
+/* ── Page ──────────────────────────────────────────────── */
 
 export default function KanbanPage() {
   const [issues, setIssues] = useState<LinearIssue[]>([])
-  const [agents, setAgents] = useState<AgentStatus[]>([])
+  const [agents, setAgents] = useState<Agent[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
-  const [activeTab, setActiveTab] = useState("kanban")
-  const [selectedAgent, setSelectedAgent] = useState<AgentStatus | null>(null)
-  const [agentSessions, setAgentSessions] = useState<AgentSession[]>([])
-  const [loadingSessions, setLoadingSessions] = useState(false)
-  const [agentFilter, setAgentFilter] = useState<string>("all")
+  const [filterAgent, setFilterAgent] = useState<string>("all")
   const [selectedIssue, setSelectedIssue] = useState<LinearIssue | null>(null)
-  const [issueModalOpen, setIssueModalOpen] = useState(false)
-  const [backlogFilter, setBacklogFilter] = useState<"all" | "linear" | "config" | "manual">("all")
-  const [newTaskOpen, setNewTaskOpen] = useState(false)
-  const [newTaskDescription, setNewTaskDescription] = useState("")
-  const [newTaskAgent, setNewTaskAgent] = useState<string>("")
-  const [manualTasks, setManualTasks] = useState<Array<{
-    id: string
-    description: string
-    assignedAgent: string | null
-    createdAt: string
-  }>>([])
-  const [heartbeatTasks, setHeartbeatTasks] = useState<Array<{
-    id: string
-    description: string
-    agent: string
-  }>>([])
-  const [historySortBy, setHistorySortBy] = useState<"date" | "agent" | "duration">("date")
-  const [historyAgentFilter, setHistoryAgentFilter] = useState<string>("all")
-  const [issueAssignments, setIssueAssignments] = useState<Record<string, { dev: string; qa: string | null }>>({})
-  const [gatewayActivity, setGatewayActivity] = useState<any[]>([])
-  const [gatewayError, setGatewayError] = useState<string | null>(null)
 
-  const fetchKanbanData = async (retryCount = 0) => {
+  const fetchData = useCallback(async () => {
     try {
-      // Fetch issue assignments from local DB
-      const assignmentsRes = await fetch("/api/issue-assignments")
-      let currentAssignments: Record<string, { dev: string; qa: string | null }> = {}
-      if (assignmentsRes.ok) {
-        const { assignments } = await assignmentsRes.json()
-        currentAssignments = assignments || {}
-        setIssueAssignments(currentAssignments)
-        console.log("[Kanban] Loaded", Object.keys(currentAssignments).length, "issue assignments")
-      }
-
-      // Fetch Linear issues
-      console.log("[Kanban] Fetching Linear issues... (attempt", retryCount + 1, ")")
-      const issuesRes = await fetch("/api/linear/issues")
-      console.log("[Kanban] Linear API response status:", issuesRes.status)
-      
-      if (issuesRes.ok) {
-        const data = await issuesRes.json()
-        console.log("[Kanban] Linear data received:", data)
-        console.log("[Kanban] Issues count:", data.issues?.length || 0)
-        if (data.cached) {
-          console.log("[Kanban] Data from cache:", data.cacheInfo)
-        }
-        const fetchedIssues = data.issues || []
-        setIssues(fetchedIssues)
-
-        // AUTO-INITIALIZE: Create assignments for issues with labels but no assignment
-        const labelToAgent: Record<string, string> = {
-          "bolt": "builder",
-          "builder": "builder",
-          "iris": "qa",
-          "qa": "qa",
-          "luna": "pm",
-          "pm": "pm",
-        }
-
-        let autoInitialized = 0
-        for (const issue of fetchedIssues) {
-          // Skip if already has assignment
-          if (currentAssignments[issue.id]) continue
-
-          // Check labels for agent
-          const labelNames = issue.labels.map((l: any) => l.name.toLowerCase())
-          let agentName: string | null = null
-
-          for (const labelName of labelNames) {
-            if (labelToAgent[labelName]) {
-              agentName = labelToAgent[labelName]
-              break
-            }
-          }
-
-          // Create assignment if agent found
-          if (agentName) {
-            try {
-              const res = await fetch("/api/issue-assignments", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ issueId: issue.id, agentName }),
-              })
-
-              if (res.ok) {
-                currentAssignments[issue.id] = { dev: agentName, qa: null }
-                autoInitialized++
-                console.log(`[Kanban] Auto-assigned ${issue.identifier} → ${agentName}`)
-              }
-            } catch (error) {
-              console.error(`[Kanban] Failed to auto-assign ${issue.identifier}:`, error)
-            }
-          }
-        }
-
-        if (autoInitialized > 0) {
-          setIssueAssignments({ ...currentAssignments })
-          console.log(`[Kanban] ✅ Auto-initialized ${autoInitialized} assignments from labels`)
-        }
-      } else if (issuesRes.status === 429 || issuesRes.status === 503) {
-        // Rate limit or service unavailable - retry with exponential backoff
-        const errorData = await issuesRes.json().catch(() => ({}))
-        console.warn("[Kanban] Rate limit or service error:", errorData)
-        
-        if (retryCount < 3) {
-          const backoffTime = Math.min(1000 * Math.pow(2, retryCount), 10000) // Max 10s
-          console.log(`[Kanban] Retrying in ${backoffTime}ms...`)
-          setTimeout(() => fetchKanbanData(retryCount + 1), backoffTime)
-          return
-        } else {
-          console.error("[Kanban] Max retries reached, giving up")
-        }
-      } else {
-        console.error("[Kanban] Linear API error:", issuesRes.status, issuesRes.statusText)
-        const errorData = await issuesRes.json().catch(() => ({}))
-        console.error("[Kanban] Error details:", errorData)
-      }
-
-      // Fetch agents and gateway activity
-      const [agentsRes, activityRes] = await Promise.all([
-        fetch("/api/agents"),
-        fetch("/api/gateway/activity")
+      const [issuesRes, agentsRes] = await Promise.all([
+        fetch("/api/linear/issues").catch(() => null),
+        fetch("/api/agents").catch(() => null),
       ])
-
-      // Handle agents
-      if (agentsRes.ok) {
-        const agentsData = await agentsRes.json()
-        const agentStatuses: AgentStatus[] = (agentsData.agents || []).map((agent: any) => ({
-          agentId: agent.id || "unknown",
-          agentName: agent.identity?.name || agent.id || "Unknown",
-          agentEmoji: agent.identity?.emoji || "🤖",
-          status: "active",
-          sessionCount: agent.sessions || 0,
-          lastActivity: agent.lastActive || new Date().toISOString(),
-          sessions: [],
-        }))
-        setAgents(agentStatuses)
-
-        // Parse HEARTBEAT.md for each agent
-        const heartbeatTasksTemp: typeof heartbeatTasks = []
-        for (const agent of agentStatuses) {
-          try {
-            const heartbeatRes = await fetch(
-              `${process.env.NEXT_PUBLIC_WORKSPACE_SERVER_URL}/workspace/${agent.agentId}/files/HEARTBEAT.md`
-            )
-            if (heartbeatRes.ok) {
-              const content = await heartbeatRes.text()
-              const lines = content.split('\n').filter(line => 
-                line.trim() && 
-                !line.trim().startsWith('#') && 
-                !line.trim().startsWith('//') &&
-                line.trim() !== ''
-              )
-              lines.forEach((line, idx) => {
-                if (line.trim()) {
-                  heartbeatTasksTemp.push({
-                    id: `heartbeat-${agent.agentId}-${idx}`,
-                    description: line.trim().replace(/^[-*]\s*/, ''),
-                    agent: agent.agentId,
-                  })
-                }
-              })
-            }
-          } catch (err) {
-            console.log(`No HEARTBEAT.md for ${agent.agentId}`)
-          }
-        }
-        setHeartbeatTasks(heartbeatTasksTemp)
-      } else {
-        const errorData = await agentsRes.json().catch(() => ({}))
-        setGatewayError(`Gateway offline: ${errorData.error || 'Cannot reach OpenClaw gateway'}`)
-        console.error("[Kanban] Gateway error:", errorData)
+      if (issuesRes?.ok) {
+        const d = await issuesRes.json()
+        setIssues(d.issues || [])
       }
-
-      // Handle activity
-      if (activityRes.ok) {
-        const activityData = await activityRes.json()
-        setGatewayActivity(activityData.activities || [])
-        setGatewayError(null)
-        console.log("[Kanban] Loaded", activityData.activities?.length || 0, "gateway activities")
-      } else {
-        const errorData = await activityRes.json().catch(() => ({}))
-        console.warn("[Kanban] Activity fetch failed:", errorData)
+      if (agentsRes?.ok) {
+        const d = await agentsRes.json()
+        setAgents(d.agents || [])
       }
-
       setLastUpdate(new Date())
-    } catch (error) {
-      console.error("Failed to fetch kanban data:", error)
-    } finally {
+    } catch { /* swallow */ } finally {
       setIsLoading(false)
     }
-  }
-
-  useEffect(() => {
-    fetchKanbanData()
-    const interval = setInterval(fetchKanbanData, POLLING_INTERVAL)
-    return () => clearInterval(interval)
   }, [])
 
-  const selectAgent = async (agent: AgentStatus) => {
-    try {
-      setSelectedAgent(agent)
-      setActiveTab("agent-detail")
-      setLoadingSessions(true)
+  useEffect(() => {
+    fetchData()
+    const iv = setInterval(fetchData, POLL_INTERVAL)
+    return () => clearInterval(iv)
+  }, [fetchData])
 
-      const res = await fetch(`/api/agents/${agent.agentId}/sessions`)
-      if (res.ok) {
-        const data = await res.json()
-        setAgentSessions(data.sessions || [])
-      }
-    } catch (error) {
-      console.error("Failed to fetch agent sessions:", error)
-      setAgentSessions([])
-    } finally {
-      setLoadingSessions(false)
-    }
-  }
+  // Filtered issues
+  const filtered = filterAgent === "all"
+    ? issues
+    : issues.filter(i => i.assigneeId === filterAgent)
 
-  const openIssueModal = (issue: LinearIssue) => {
-    setSelectedIssue(issue)
-    setIssueModalOpen(true)
-  }
-
-  const createManualTask = () => {
-    if (!newTaskDescription.trim()) return
-
-    const task = {
-      id: `manual-${Date.now()}`,
-      description: newTaskDescription,
-      assignedAgent: newTaskAgent || null,
-      createdAt: new Date().toISOString(),
-    }
-
-    setManualTasks([...manualTasks, task])
-    setNewTaskDescription("")
-    setNewTaskAgent("")
-    setNewTaskOpen(false)
-
-    // TODO: Send to agent via sessions_send if assigned
-    if (newTaskAgent) {
-      console.log(`TODO: Send task to ${newTaskAgent} via sessions_send`)
-    }
-  }
-
-  const getPriorityColor = (priority: number) => {
-    switch (priority) {
-      case 0: return "border-red-500 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400"
-      case 1: return "border-orange-500 bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400"
-      case 2: return "border-yellow-500 bg-yellow-50 dark:bg-yellow-950/30 text-yellow-700 dark:text-yellow-600"
-      case 3: return "border-blue-500 bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-400"
-      default: return "border-gray-400 bg-gray-50 dark:bg-gray-950/30 text-gray-700 dark:text-gray-400"
-    }
-  }
-
-  const getPriorityIcon = (priority: number) => {
-    if (priority === 0) return <Zap className="h-3 w-3" />
-    if (priority === 1) return <AlertCircle className="h-3 w-3" />
-    return <Clock className="h-3 w-3" />
-  }
-
-  // Assign agent to issue (save to local DB)
-  const assignIssueToAgent = async (issueId: string, agentName: string, role: "dev" | "qa" = "dev") => {
-    try {
-      const body: any = { issueId, role }
-      if (role === "qa") {
-        body.qaAgent = agentName
-      } else {
-        body.agentName = agentName
-      }
-
-      const res = await fetch("/api/issue-assignments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      })
-
-      if (res.ok) {
-        // Update local state
-        setIssueAssignments(prev => {
-          const existing = prev[issueId] || { dev: "", qa: null }
-          if (role === "qa") {
-            return { ...prev, [issueId]: { ...existing, qa: agentName } }
-          } else {
-            return { ...prev, [issueId]: { ...existing, dev: agentName } }
-          }
-        })
-        console.log(`[Kanban] Assigned ${issueId} ${role}:${agentName}`)
-      } else {
-        console.error("[Kanban] Failed to assign issue:", await res.text())
-      }
-    } catch (error) {
-      console.error("[Kanban] Error assigning issue:", error)
-    }
-  }
-
-  // Get the ACTIVE agent for an issue based on its column/state
-  const getIssueAgent = (issueId: string, column?: string): string | null => {
-    const assignment = issueAssignments[issueId]
-    if (!assignment) return null
-
-    // Dynamic: show QA agent when in review/QA, dev agent otherwise
-    if (column === "done") {
-      // Done: show QA agent if exists, otherwise dev
-      return assignment.qa || assignment.dev
-    }
-    // For in-progress and backlog, show dev agent
-    return assignment.dev || null
-  }
-
-  // Get dev agent specifically
-  const getDevAgent = (issueId: string): string | null => {
-    return issueAssignments[issueId]?.dev || null
-  }
-
-  // Get QA agent specifically
-  const getQaAgent = (issueId: string): string | null => {
-    return issueAssignments[issueId]?.qa || null
-  }
-
-  // Filter issues by agent (checks both dev and qa assignments)
-  const filteredIssues = agentFilter === "all" 
-    ? issues 
-    : issues.filter(issue => {
-        const assignment = issueAssignments[issue.id]
-        if (!assignment) return false
-        return assignment.dev === agentFilter || assignment.qa === agentFilter
-      })
-
-  const columns = [
-    { id: "backlog", title: "Backlog", issues: filteredIssues.filter(i => i.column === "backlog") },
-    { id: "in-progress", title: "In Progress", issues: filteredIssues.filter(i => i.column === "in-progress") },
-    { id: "done", title: "Done", issues: filteredIssues.filter(i => i.column === "done") },
-  ]
+  // Group by column
+  const columnIssues = (colId: string) =>
+    filtered.filter(i => i.column === colId)
 
   return (
-    <>
-      {/* Page Header */}
-      <div className="border-b bg-muted/30">
-        <div className="container mx-auto px-6 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight">Task Board</h1>
-              <p className="text-muted-foreground mt-1">
-                Real-time Linear integration • Sprint progress
-              </p>
-            </div>
-            <div className="flex items-center gap-4">
-              {lastUpdate && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Activity className="h-4 w-4 animate-pulse text-green-500" />
-                  <span>Live • {lastUpdate.toLocaleTimeString()}</span>
-                </div>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => fetchKanbanData()}
-                disabled={isLoading}
-              >
-                <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
-                Refresh
-              </Button>
-            </div>
-          </div>
+    <div className="max-w-[1400px] mx-auto px-6 py-8">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-display">Kanban</h1>
+          <p className="text-subtitle mt-1">Linear issues across 4 workflow stages</p>
+        </div>
+        <div className="flex items-center gap-3">
+          {lastUpdate && (
+            <span className="text-caption">
+              {lastUpdate.toLocaleTimeString()}
+            </span>
+          )}
+          <Button variant="outline" size="sm" onClick={fetchData} disabled={isLoading}>
+            <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
         </div>
       </div>
 
-      {/* Main Content */}
-      <main className="container mx-auto px-6 py-8">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="kanban">Kanban Board</TabsTrigger>
-            <TabsTrigger value="backlog">Backlog</TabsTrigger>
-            <TabsTrigger value="history">Task History</TabsTrigger>
-            <TabsTrigger value="agent-detail">Agent Detail</TabsTrigger>
-          </TabsList>
+      {/* Agent filter chips */}
+      <div className="flex items-center gap-2 mb-6" data-testid="agent-filter">
+        <span className="text-label mr-1">Filter:</span>
+        <button
+          onClick={() => setFilterAgent("all")}
+          className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+            filterAgent === "all"
+              ? "bg-foreground text-background border-foreground"
+              : "bg-transparent text-muted-foreground border-border hover:border-foreground/40"
+          }`}
+        >
+          All ({issues.length})
+        </button>
+        {Object.entries(AGENT_MAP).map(([id, a]) => {
+          const count = issues.filter(i => i.assigneeId === id).length
+          return (
+            <button
+              key={id}
+              onClick={() => setFilterAgent(id)}
+              className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+                filterAgent === id
+                  ? "bg-foreground text-background border-foreground"
+                  : "bg-transparent text-muted-foreground border-border hover:border-foreground/40"
+              }`}
+            >
+              {a.emoji} {a.name} ({count})
+            </button>
+          )
+        })}
+      </div>
 
-          {/* SAP-26: Kanban Board */}
-          <TabsContent value="kanban" className="space-y-4">
-            {/* Filter */}
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center gap-4">
-                  <Label htmlFor="agent-filter" className="text-sm font-medium">
-                    Filter by Agent:
-                  </Label>
-                  <Select value={agentFilter} onValueChange={setAgentFilter}>
-                    <SelectTrigger id="agent-filter" className="w-[200px]">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Agents</SelectItem>
-                      {agents.map(agent => (
-                        <SelectItem key={agent.agentId} value={agent.agentId}>
-                          {agent.agentEmoji} {agent.agentName}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <div className="ml-auto text-sm text-muted-foreground">
-                    {filteredIssues.length} task{filteredIssues.length !== 1 ? 's' : ''}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Kanban Columns */}
-            {isLoading ? (
-              <div className="grid md:grid-cols-3 gap-6">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="h-96 rounded-lg border bg-card animate-pulse" />
-                ))}
-              </div>
-            ) : (
-              <div className="grid md:grid-cols-3 gap-6">
-                {columns.map((column) => (
-                  <div key={column.id} className="space-y-3">
-                    {/* Column Header */}
-                    <div className="flex items-center justify-between">
-                      <h3 className="text-lg font-semibold">{column.title}</h3>
-                      <Badge variant="outline">{column.issues.length}</Badge>
-                    </div>
-
-                    {/* Column Cards */}
-                    <div className="space-y-3 min-h-[400px] rounded-lg border-2 border-dashed border-muted p-3">
-                      <AnimatePresence>
-                        {column.issues.map((issue, index) => {
-                          const devAgentId = getDevAgent(issue.id)
-                          const qaAgentId = getQaAgent(issue.id)
-                          const activeAgentId = getIssueAgent(issue.id, column.id)
-                          const agent = agents.find(a => a.agentId === activeAgentId)
-                          return (
-                            <motion.div
-                              key={issue.id}
-                              layout
-                              initial={{ opacity: 0, y: 20 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              exit={{ opacity: 0, scale: 0.9 }}
-                              transition={{ delay: index * 0.05 }}
-                            >
-                              <Card 
-                                className="hover:shadow-md transition-shadow"
-                              >
-                                <CardHeader className="pb-3">
-                                  <div className="flex items-start justify-between gap-2">
-                                    <div 
-                                      className="flex-1 cursor-pointer" 
-                                      onClick={() => openIssueModal(issue)}
-                                    >
-                                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                                        <span className="text-xs font-mono text-muted-foreground">
-                                          {issue.identifier}
-                                        </span>
-                                        {/* Priority Badge - MORE VISIBLE */}
-                                        <Badge 
-                                          variant={issue.priority === 0 ? "destructive" : "outline"}
-                                          className={`text-xs ${getPriorityColor(issue.priority)}`}
-                                        >
-                                          {issue.priority === 0 && "🔴"}
-                                          {issue.priority === 1 && "🟠"}
-                                          {issue.priority === 2 && "🟡"}
-                                          {issue.priority === 3 && "🔵"}
-                                          {issue.priority === 4 && "⚪"}
-                                          {" "}
-                                          {issue.priorityLabel}
-                                        </Badge>
-                                        {issue.isNext && (
-                                          <Badge variant="default" className="text-xs">
-                                            NEXT 🔜
-                                          </Badge>
-                                        )}
-                                      </div>
-                                      <CardTitle className="text-sm line-clamp-2">
-                                        {issue.title}
-                                      </CardTitle>
-                                    </div>
-                                  </div>
-                                </CardHeader>
-                                <CardContent className="space-y-2">
-                                  {/* Dev + QA Assignment Chips */}
-                                  <div onClick={(e) => e.stopPropagation()} className="space-y-1">
-                                    {/* Dev Agent */}
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-[10px] uppercase font-bold text-muted-foreground w-8">Dev</span>
-                                      <Select 
-                                        value={devAgentId || "unassigned"}
-                                        onValueChange={(value) => {
-                                          if (value !== "unassigned") {
-                                            assignIssueToAgent(issue.id, value, "dev")
-                                          }
-                                        }}
-                                      >
-                                        <SelectTrigger className="h-7 text-xs flex-1">
-                                          <SelectValue>
-                                            {(() => {
-                                              const devAgent = agents.find(a => a.agentId === devAgentId)
-                                              return devAgent ? (
-                                                <span className="flex items-center gap-1">
-                                                  <span>{devAgent.agentEmoji}</span>
-                                                  <span className="font-semibold">{devAgent.agentName}</span>
-                                                </span>
-                                              ) : (
-                                                <span className="text-muted-foreground">Unassigned</span>
-                                              )
-                                            })()}
-                                          </SelectValue>
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          <SelectItem value="unassigned">Unassigned</SelectItem>
-                                          {agents.map(a => (
-                                            <SelectItem key={a.agentId} value={a.agentId}>
-                                              {a.agentEmoji} {a.agentName}
-                                            </SelectItem>
-                                          ))}
-                                        </SelectContent>
-                                      </Select>
-                                    </div>
-                                    {/* QA Agent - only show for in-progress and done columns */}
-                                    {column.id !== "backlog" && (
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-[10px] uppercase font-bold text-muted-foreground w-8">QA</span>
-                                        <Select 
-                                          value={qaAgentId || "unassigned"}
-                                          onValueChange={(value) => {
-                                            if (value !== "unassigned") {
-                                              assignIssueToAgent(issue.id, value, "qa")
-                                            }
-                                          }}
-                                        >
-                                          <SelectTrigger className="h-7 text-xs flex-1">
-                                            <SelectValue>
-                                              {(() => {
-                                                const qaAgent = agents.find(a => a.agentId === qaAgentId)
-                                                return qaAgent ? (
-                                                  <span className="flex items-center gap-1">
-                                                    <span>{qaAgent.agentEmoji}</span>
-                                                    <span className="font-semibold">{qaAgent.agentName}</span>
-                                                  </span>
-                                                ) : (
-                                                  <span className="text-muted-foreground">Unassigned</span>
-                                                )
-                                              })()}
-                                            </SelectValue>
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            <SelectItem value="unassigned">Unassigned</SelectItem>
-                                            {agents.map(a => (
-                                              <SelectItem key={a.agentId} value={a.agentId}>
-                                                {a.agentEmoji} {a.agentName}
-                                              </SelectItem>
-                                            ))}
-                                          </SelectContent>
-                                        </Select>
-                                      </div>
-                                    )}
-                                  </div>
-                                  {issue.labels.length > 0 && (
-                                    <div className="flex flex-wrap gap-1">
-                                      {issue.labels.slice(0, 2).map(label => (
-                                        <Badge key={label.id} variant="secondary" className="text-xs">
-                                          {label.name}
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  )}
-                                </CardContent>
-                              </Card>
-                            </motion.div>
-                          )
-                        })}
-                      </AnimatePresence>
-                      {column.issues.length === 0 && (
-                        <div className="text-center py-8 text-muted-foreground text-sm">
-                          No tasks in {column.title.toLowerCase()}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </TabsContent>
-
-          {/* SAP-36: Backlog Tab - Gateway Data */}
-          <TabsContent value="backlog" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Active Sessions</CardTitle>
-                <CardDescription>Current agent sessions and pending tasks from gateway</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {gatewayError && (
-                  <div className="mb-4 p-4 border border-red-500/50 bg-red-50 dark:bg-red-950/20 rounded-lg">
-                    <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
-                      <AlertCircle className="h-5 w-5" />
-                      <div>
-                        <p className="font-semibold">Gateway Offline</p>
-                        <p className="text-sm">{gatewayError}</p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {isLoading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
-                  </div>
-                ) : gatewayError ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <AlertCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p className="text-lg font-medium">Cannot connect to gateway</p>
-                    <p className="text-sm mt-1">Check that OpenClaw gateway is running</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {/* Active Sessions from Gateway */}
-                    {gatewayActivity.length > 0 ? (
-                      gatewayActivity.map((activity) => (
-                        <Card key={activity.id} className="hover:shadow-md transition-shadow">
-                          <CardHeader className="pb-3">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <Badge variant="default" className="text-xs">
-                                    <Activity className="h-3 w-3 mr-1" />
-                                    {activity.status}
-                                  </Badge>
-                                  <span className="text-xs font-mono text-muted-foreground">
-                                    {activity.channel}
-                                  </span>
-                                </div>
-                                <CardTitle className="text-sm">{activity.sessionKey}</CardTitle>
-                                <p className="text-xs text-muted-foreground mt-1">
-                                  Model: {activity.model} • Tokens: {activity.tokens}
-                                </p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <div className="flex items-center gap-1 text-sm">
-                                  <span>{activity.agentEmoji}</span>
-                                  <span className="text-xs font-semibold">{activity.agentName}</span>
-                                </div>
-                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                                  <Clock className="h-3 w-3" />
-                                  {new Date(activity.timestamp).toLocaleTimeString()}
-                                </div>
-                              </div>
-                            </div>
-                          </CardHeader>
-                        </Card>
-                      ))
-                    ) : (
-                      <div className="text-center py-12 text-muted-foreground">
-                        <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                        <p className="text-lg font-medium">No active sessions</p>
-                        <p className="text-sm mt-1">Start a conversation with an agent to see activity here</p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* SAP-36: Task History Tab - Gateway Activity */}
-          <TabsContent value="history" className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Activity History</CardTitle>
-                <CardDescription>Recent agent activity from gateway</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="flex items-center gap-4 mb-4">
-                  <div className="flex items-center gap-2">
-                    <Label htmlFor="history-agent-filter" className="text-sm font-medium">
-                      Agent:
-                    </Label>
-                    <Select value={historyAgentFilter} onValueChange={setHistoryAgentFilter}>
-                      <SelectTrigger id="history-agent-filter" className="w-[150px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All Agents</SelectItem>
-                        {agents.map(agent => (
-                          <SelectItem key={agent.agentId} value={agent.agentId}>
-                            {agent.agentEmoji} {agent.agentName}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+      {/* 4-column Kanban grid */}
+      {isLoading && issues.length === 0 ? (
+        <div className="flex items-center justify-center py-24 text-muted-foreground">
+          <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading issues...
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+          {COLUMNS.map(col => {
+            const colItems = columnIssues(col.id)
+            return (
+              <div key={col.id} className="flex flex-col min-h-[500px]" data-testid={`column-${col.id}`}>
+                {/* Column header */}
+                <div className="flex items-center gap-2 mb-3">
+                  <span className={`h-2.5 w-2.5 rounded-full ${col.color}`} />
+                  <h2 className="text-sm font-semibold">{col.title}</h2>
+                  <span className="ml-auto text-xs text-muted-foreground font-mono">
+                    {colItems.length}
+                  </span>
                 </div>
 
-                {gatewayError && (
-                  <div className="mb-4 p-4 border border-red-500/50 bg-red-50 dark:bg-red-950/20 rounded-lg">
-                    <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
-                      <AlertCircle className="h-5 w-5" />
-                      <div>
-                        <p className="font-semibold">Gateway Offline</p>
-                        <p className="text-sm">{gatewayError}</p>
-                      </div>
+                {/* Column body */}
+                <div className="flex-1 space-y-2.5 rounded-lg bg-muted/30 border border-dashed border-border/60 p-2.5">
+                  {colItems.length === 0 ? (
+                    <div className="flex items-center justify-center h-32 text-xs text-muted-foreground">
+                      No issues
                     </div>
-                  </div>
-                )}
-
-                {isLoading ? (
-                  <div className="flex items-center justify-center py-12">
-                    <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground" />
-                  </div>
-                ) : gatewayError ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <AlertCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p className="text-lg font-medium">Cannot connect to gateway</p>
-                    <p className="text-sm mt-1">Check that OpenClaw gateway is running</p>
-                  </div>
-                ) : (
-                  <>
-                    {(() => {
-                      // Filter activity by agent
-                      let filteredActivity = gatewayActivity
-                      if (historyAgentFilter !== "all") {
-                        filteredActivity = gatewayActivity.filter(a => a.agentId === historyAgentFilter)
-                      }
-
-                      if (filteredActivity.length === 0) {
-                        return (
-                          <div className="text-center py-12 text-muted-foreground">
-                            <Clock className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                            <p className="text-lg font-medium">No activity yet</p>
-                            <p className="text-sm mt-1">Agent activity will appear here</p>
-                          </div>
-                        )
-                      }
-
-                      return (
-                        <div className="space-y-3">
-                          {filteredActivity.map((activity) => {
-                            const timeAgo = new Date(activity.timestamp)
-                            const now = new Date()
-                            const diffMs = now.getTime() - timeAgo.getTime()
-                            const diffMins = Math.floor(diffMs / 60000)
-                            const diffHours = Math.floor(diffMins / 60)
-                            const diffDays = Math.floor(diffHours / 24)
-                            
-                            let timeStr = ""
-                            if (diffDays > 0) timeStr = `${diffDays}d ago`
-                            else if (diffHours > 0) timeStr = `${diffHours}h ago`
-                            else if (diffMins > 0) timeStr = `${diffMins}m ago`
-                            else timeStr = "just now"
-
-                            return (
-                              <Card key={activity.id} className="hover:shadow-md transition-shadow">
-                                <CardHeader className="pb-3">
-                                  <div className="flex items-center justify-between gap-4">
-                                    <div className="flex-1">
-                                      <div className="flex items-center gap-2 mb-1">
-                                        <Badge variant="outline" className="text-xs">
-                                          <Activity className="h-3 w-3 mr-1" />
-                                          {activity.type}
-                                        </Badge>
-                                        <span className="text-xs font-mono text-muted-foreground">
-                                          {activity.channel}
-                                        </span>
-                                      </div>
-                                      <CardTitle className="text-sm">{activity.sessionKey}</CardTitle>
-                                      <p className="text-xs text-muted-foreground mt-1">
-                                        {activity.model} • {activity.tokens} tokens
-                                      </p>
-                                    </div>
-                                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                                      <div className="flex items-center gap-1">
-                                        <span>{activity.agentEmoji}</span>
-                                        <span className="text-xs">{activity.agentName}</span>
-                                      </div>
-                                      <div className="flex items-center gap-1">
-                                        <Clock className="h-3 w-3" />
-                                        <span className="text-xs">{timeStr}</span>
-                                      </div>
-                                    </div>
-                                  </div>
-                                </CardHeader>
-                              </Card>
-                            )
-                          })}
-                        </div>
-                      )
-                    })()}
-                  </>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          {/* SAP-27: Agent Detail Clean */}
-          <TabsContent value="agent-detail" className="space-y-4">
-            {!selectedAgent ? (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Agent Detail</CardTitle>
-                  <CardDescription>Select an agent from the Kanban board to view their current task</CardDescription>
-                </CardHeader>
-                <CardContent className="py-12">
-                  <div className="text-center text-muted-foreground">
-                    <Activity className="h-12 w-12 mx-auto mb-4 opacity-50" />
-                    <p>No agent selected</p>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : (
-              <>
-                {/* Agent Header */}
-                <Card>
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4">
-                        <span className="text-5xl">{selectedAgent.agentEmoji}</span>
-                        <div>
-                          <CardTitle className="text-2xl">{selectedAgent.agentName}</CardTitle>
-                          <p className="text-sm text-muted-foreground capitalize">
-                            {selectedAgent.agentId} Agent
-                          </p>
-                        </div>
-                      </div>
-                      <Badge 
-                        variant={selectedAgent.status === "active" ? "default" : "secondary"}
-                        className="text-sm"
-                      >
-                        {selectedAgent.status === "active" ? "🟢 Active" : 
-                         selectedAgent.status === "idle" ? "⚪ Idle" : "🟡 Waiting"}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                </Card>
-
-                {/* Current Task */}
-                {(() => {
-                  const currentTask = issues.find(
-                    issue => getIssueAgent(issue.id, issue.column) === selectedAgent.agentId && issue.column === "in-progress"
-                  )
-                  
-                  if (currentTask) {
-                    const startedTime = new Date(currentTask.updatedAt)
-                    const now = new Date()
-                    const diffMs = now.getTime() - startedTime.getTime()
-                    const diffMins = Math.floor(diffMs / 60000)
-                    const diffHours = Math.floor(diffMins / 60)
-                    const diffDays = Math.floor(diffHours / 24)
-                    
-                    let timeWorking = ""
-                    if (diffDays > 0) timeWorking = `${diffDays}d ${diffHours % 24}h`
-                    else if (diffHours > 0) timeWorking = `${diffHours}h ${diffMins % 60}m`
-                    else timeWorking = `${diffMins}m`
-
-                    return (
-                      <Card>
-                        <CardHeader>
-                          <div className="flex items-center justify-between">
-                            <CardTitle className="text-lg">Current Task</CardTitle>
-                            <Badge variant="default" className="animate-pulse">
-                              In Progress
-                            </Badge>
-                          </div>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                          <div>
-                            <div className="flex items-center gap-2 mb-2">
-                              <span className="text-xs font-mono text-muted-foreground">
-                                {currentTask.identifier}
-                              </span>
-                              {currentTask.isNext && (
-                                <Badge variant="secondary" className="text-xs">
-                                  NEXT 🔜
-                                </Badge>
-                              )}
-                            </div>
-                            <h3 className="text-xl font-semibold mb-2">{currentTask.title}</h3>
-                            {currentTask.description && (
-                              <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                                {currentTask.description}
-                              </p>
-                            )}
-                          </div>
-
-                          <div className="grid grid-cols-3 gap-4 pt-4 border-t">
-                            <div>
-                              <p className="text-xs text-muted-foreground mb-1">Priority</p>
-                              <div className={`flex items-center gap-1 text-sm font-medium ${getPriorityColor(currentTask.priority)}`}>
-                                {getPriorityIcon(currentTask.priority)}
-                                <span>{currentTask.priorityLabel}</span>
-                              </div>
-                            </div>
-                            <div>
-                              <p className="text-xs text-muted-foreground mb-1">Time Working</p>
-                              <p className="text-sm font-medium">{timeWorking}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs text-muted-foreground mb-1">Status</p>
-                              <p className="text-sm font-medium">{currentTask.state}</p>
-                            </div>
-                          </div>
-
-                          {currentTask.labels.length > 0 && (
-                            <div className="pt-4 border-t">
-                              <p className="text-xs text-muted-foreground mb-2">Labels</p>
-                              <div className="flex flex-wrap gap-2">
-                                {currentTask.labels.map(label => (
-                                  <Badge key={label.id} variant="secondary">
-                                    {label.name}
-                                  </Badge>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          <div className="pt-4">
-                            <Button asChild className="w-full">
-                              <a href={currentTask.url} target="_blank" rel="noopener noreferrer">
-                                Open in Linear
-                                <ExternalLink className="h-4 w-4 ml-2" />
-                              </a>
-                            </Button>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    )
-                  } else {
-                    // No current task - show next task or idle state
-                    const nextTask = issues.find(
-                      issue => getIssueAgent(issue.id, issue.column) === selectedAgent.agentId && issue.column === "backlog"
-                    )
-
-                    if (nextTask) {
-                      return (
-                        <Card>
-                          <CardHeader>
-                            <div className="flex items-center justify-between">
-                              <CardTitle className="text-lg">Next Task</CardTitle>
-                              <Badge variant="outline">Queued</Badge>
-                            </div>
-                          </CardHeader>
-                          <CardContent className="space-y-4">
-                            <div>
-                              <div className="flex items-center gap-2 mb-2">
-                                <span className="text-xs font-mono text-muted-foreground">
-                                  {nextTask.identifier}
-                                </span>
-                                {nextTask.isNext && (
-                                  <Badge variant="default" className="text-xs">
-                                    NEXT 🔜
-                                  </Badge>
-                                )}
-                              </div>
-                              <h3 className="text-xl font-semibold mb-2">{nextTask.title}</h3>
-                              {nextTask.description && (
-                                <p className="text-sm text-muted-foreground line-clamp-3">
-                                  {nextTask.description}
-                                </p>
-                              )}
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-4 pt-4 border-t">
-                              <div>
-                                <p className="text-xs text-muted-foreground mb-1">Priority</p>
-                                <div className={`flex items-center gap-1 text-sm font-medium ${getPriorityColor(nextTask.priority)}`}>
-                                  {getPriorityIcon(nextTask.priority)}
-                                  <span>{nextTask.priorityLabel}</span>
-                                </div>
-                              </div>
-                              <div>
-                                <p className="text-xs text-muted-foreground mb-1">Status</p>
-                                <p className="text-sm font-medium">{nextTask.state}</p>
-                              </div>
-                            </div>
-
-                            <div className="pt-4">
-                              <Button asChild variant="outline" className="w-full">
-                                <a href={nextTask.url} target="_blank" rel="noopener noreferrer">
-                                  View in Linear
-                                  <ArrowRight className="h-4 w-4 ml-2" />
-                                </a>
-                              </Button>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      )
-                    } else {
-                      // Idle - no tasks
-                      return (
-                        <Card>
-                          <CardHeader>
-                            <CardTitle className="text-lg">Status</CardTitle>
-                          </CardHeader>
-                          <CardContent className="py-12">
-                            <div className="text-center">
-                              <div className="text-6xl mb-4">☕</div>
-                              <h3 className="text-xl font-semibold mb-2">All Clear</h3>
-                              <p className="text-muted-foreground">
-                                No tasks assigned to {selectedAgent.agentName}
-                              </p>
-                            </div>
-                          </CardContent>
-                        </Card>
-                      )
-                    }
-                  }
-                })()}
-
-                {/* Completed Tasks Summary */}
-                {(() => {
-                  const completedTasks = issues.filter(
-                    issue => getIssueAgent(issue.id, issue.column) === selectedAgent.agentId && issue.column === "done"
-                  )
-                  
-                  if (completedTasks.length > 0) {
-                    return (
-                      <Card>
-                        <CardHeader>
-                          <CardTitle className="text-lg">Recent Completions</CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="space-y-2">
-                            {completedTasks.slice(0, 3).map((task) => (
-                              <div 
-                                key={task.id}
-                                className="flex items-center justify-between p-3 rounded-lg border hover:bg-muted/50 transition-colors cursor-pointer"
-                                onClick={() => openIssueModal(task)}
-                              >
-                                <div className="flex-1">
-                                  <p className="text-sm font-medium line-clamp-1">{task.title}</p>
-                                  <p className="text-xs text-muted-foreground">{task.identifier}</p>
-                                </div>
-                                <Badge variant="secondary" className="ml-2">
-                                  ✓ Done
-                                </Badge>
-                              </div>
-                            ))}
-                          </div>
-                          {completedTasks.length > 3 && (
-                            <p className="text-xs text-muted-foreground text-center mt-4">
-                              +{completedTasks.length - 3} more completed
-                            </p>
-                          )}
-                        </CardContent>
-                      </Card>
-                    )
-                  }
-                  return null
-                })()}
-              </>
-            )}
-          </TabsContent>
-        </Tabs>
-      </main>
-
-      {/* Issue Detail Modal */}
-      <Dialog open={issueModalOpen} onOpenChange={setIssueModalOpen}>
-        <DialogContent className="max-w-2xl">
-          {selectedIssue && (
-            <>
-              <DialogHeader>
-                <div className="flex-1 pr-8">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-sm font-mono text-muted-foreground">
-                      {selectedIssue.identifier}
-                    </span>
-                    {selectedIssue.isNext && (
-                      <Badge variant="default" className="text-xs">
-                        NEXT 🔜
-                      </Badge>
-                    )}
-                  </div>
-                  <DialogTitle className="text-xl">{selectedIssue.title}</DialogTitle>
-                </div>
-              </DialogHeader>
-
-              <div className="space-y-4">
-                {/* Description */}
-                {selectedIssue.description && (
-                  <div>
-                    <Label className="text-sm font-medium">Description</Label>
-                    <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap">
-                      {selectedIssue.description}
-                    </p>
-                  </div>
-                )}
-
-                {/* Meta */}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-sm font-medium">Status</Label>
-                    <p className="text-sm mt-1">{selectedIssue.state}</p>
-                  </div>
-                  <div>
-                    <Label className="text-sm font-medium">Priority</Label>
-                    <div className={`flex items-center gap-1 text-sm mt-1 ${getPriorityColor(selectedIssue.priority)}`}>
-                      {getPriorityIcon(selectedIssue.priority)}
-                      <span>{selectedIssue.priorityLabel}</span>
-                    </div>
-                  </div>
-                  {selectedIssue.assignee && (
-                    <div>
-                      <Label className="text-sm font-medium">Assigned To</Label>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-lg">
-                          {agents.find(a => a.agentId === selectedIssue.assigneeId)?.agentEmoji || "👤"}
-                        </span>
-                        <span className="text-sm">{selectedIssue.assignee}</span>
-                      </div>
-                    </div>
+                  ) : (
+                    colItems.map(issue => (
+                      <IssueCard
+                        key={issue.id}
+                        issue={issue}
+                        onSelect={() => setSelectedIssue(issue)}
+                      />
+                    ))
                   )}
-                  <div>
-                    <Label className="text-sm font-medium">Created</Label>
-                    <p className="text-sm mt-1">
-                      {new Date(selectedIssue.createdAt).toLocaleDateString()}
-                    </p>
-                  </div>
                 </div>
-
-                {/* Labels */}
-                {selectedIssue.labels.length > 0 && (
-                  <div>
-                    <Label className="text-sm font-medium">Labels</Label>
-                    <div className="flex flex-wrap gap-2 mt-2">
-                      {selectedIssue.labels.map(label => (
-                        <Badge key={label.id} variant="secondary">
-                          {label.name}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </div>
+            )
+          })}
+        </div>
+      )}
 
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setIssueModalOpen(false)}>
-                  Close
-                </Button>
-                <Button asChild>
-                  <a href={selectedIssue.url} target="_blank" rel="noopener noreferrer">
-                    Open in Linear
-                    <ArrowRight className="h-4 w-4 ml-2" />
-                  </a>
-                </Button>
-              </DialogFooter>
-            </>
+      {/* Issue detail slide-over */}
+      {selectedIssue && (
+        <IssueDetail
+          issue={selectedIssue}
+          onClose={() => setSelectedIssue(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+/* ── Issue Card ────────────────────────────────────────── */
+
+function IssueCard({ issue, onSelect }: { issue: LinearIssue; onSelect: () => void }) {
+  const agent = issue.assigneeId ? AGENT_MAP[issue.assigneeId] : null
+
+  return (
+    <Card
+      className="hover:border-foreground/20 transition-colors cursor-pointer"
+      onClick={onSelect}
+      data-testid={`issue-${issue.identifier}`}
+    >
+      <CardContent className="p-3 space-y-2">
+        {/* Top row: identifier + priority */}
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-mono text-muted-foreground">{issue.identifier}</span>
+          <span className="text-xs" title={issue.priorityLabel}>{priorityDot(issue.priority)}</span>
+        </div>
+
+        {/* Title */}
+        <p className="text-sm font-medium leading-snug line-clamp-2">{issue.title}</p>
+
+        {/* Bottom row: agent + labels + time */}
+        <div className="flex items-center gap-1.5 flex-wrap pt-1">
+          {agent && (
+            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 gap-0.5">
+              {agent.emoji} {agent.name}
+            </Badge>
           )}
-        </DialogContent>
-      </Dialog>
+          {issue.labels.slice(0, 2).map(l => (
+            <Badge key={l.id} variant="outline" className="text-[10px] px-1.5 py-0">
+              {l.name}
+            </Badge>
+          ))}
+          <span className="ml-auto text-[10px] text-muted-foreground flex items-center gap-0.5">
+            <Clock className="h-2.5 w-2.5" />
+            {timeAgo(issue.updatedAt)}
+          </span>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+/* ── Issue Detail Panel ────────────────────────────────── */
+
+function IssueDetail({ issue, onClose }: { issue: LinearIssue; onClose: () => void }) {
+  const agent = issue.assigneeId ? AGENT_MAP[issue.assigneeId] : null
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
+
+      {/* Panel */}
+      <div className="fixed right-0 top-0 bottom-0 w-full max-w-lg bg-background border-l z-50 overflow-y-auto">
+        <div className="p-6 space-y-6">
+          {/* Header */}
+          <div className="flex items-start justify-between">
+            <div>
+              <span className="text-xs font-mono text-muted-foreground">{issue.identifier}</span>
+              <h2 className="text-lg font-semibold mt-1">{issue.title}</h2>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-md hover:bg-muted text-muted-foreground"
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Meta grid */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-label mb-1">Status</p>
+              <Badge variant="secondary">{issue.state}</Badge>
+            </div>
+            <div>
+              <p className="text-label mb-1">Priority</p>
+              <span className="text-sm">{priorityDot(issue.priority)} {issue.priorityLabel}</span>
+            </div>
+            <div>
+              <p className="text-label mb-1">Assignee</p>
+              {agent ? (
+                <span className="text-sm">{agent.emoji} {agent.name}</span>
+              ) : (
+                <span className="text-sm text-muted-foreground">Unassigned</span>
+              )}
+            </div>
+            <div>
+              <p className="text-label mb-1">Updated</p>
+              <span className="text-sm">{new Date(issue.updatedAt).toLocaleDateString()}</span>
+            </div>
+          </div>
+
+          {/* Labels */}
+          {issue.labels.length > 0 && (
+            <div>
+              <p className="text-label mb-2">Labels</p>
+              <div className="flex flex-wrap gap-1.5">
+                {issue.labels.map(l => (
+                  <Badge key={l.id} variant="outline">{l.name}</Badge>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Description */}
+          {issue.description && (
+            <div>
+              <p className="text-label mb-2">Description</p>
+              <div className="text-sm text-muted-foreground whitespace-pre-wrap bg-muted/30 rounded-lg p-4 border">
+                {issue.description}
+              </div>
+            </div>
+          )}
+
+          {/* Actions */}
+          <div className="pt-4 border-t flex gap-3">
+            <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
+            <a href={issue.url} target="_blank" rel="noopener noreferrer">
+              <Button size="sm">
+                Open in Linear <ExternalLink className="h-3.5 w-3.5 ml-1.5" />
+              </Button>
+            </a>
+          </div>
+        </div>
+      </div>
     </>
   )
 }
