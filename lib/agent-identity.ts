@@ -29,7 +29,8 @@ export async function getAgentIdentities(): Promise<Record<string, AgentIdentity
       signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) throw new Error(`Config ${res.status}`);
-    const config = await res.json();
+    const data = await res.json();
+    const config = data?.config || data;
 
     const agents = config?.agents?.list || [];
     const map: Record<string, AgentIdentity> = {};
