@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react"
 import { Card, CardContent, StatCard, Badge } from "@/components/ds"
 import { Button } from "@/components/ds/button"
-import { RefreshCw, Loader2, Zap, Activity, Hash, Clock } from "lucide-react"
+import { RefreshCw, Loader2, Zap, Activity, Hash, Clock, ArrowLeft } from "lucide-react"
 
 /* ── Types ─────────────────────────────────────────── */
 
@@ -52,6 +52,7 @@ export default function UsagePage() {
   const [sessions, setSessions] = useState<Session[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
+  const [filterAgent, setFilterAgent] = useState<string>("all")
 
   const fetchData = useCallback(async () => {
     try {
@@ -111,9 +112,19 @@ export default function UsagePage() {
     return Array.from(map.values()).sort((a, b) => b.totalTokens - a.totalTokens)
   }, [sessions])
 
-  // Global metrics
-  const totalTokens = agentUsage.reduce((s, a) => s + a.totalTokens, 0)
-  const totalSessions = sessions.length
+  // Selected agent (if filtered)
+  const selectedAgent = filterAgent !== "all" ? agentUsage.find(a => a.id === filterAgent) : null
+
+  // Filtered sessions for drill-down
+  const filteredSessions = useMemo(() => {
+    if (filterAgent === "all") return sessions
+    return sessions.filter(s => s.key?.startsWith(`agent:${filterAgent}:`))
+  }, [sessions, filterAgent])
+
+  // Global metrics (respect filter)
+  const displayAgents = selectedAgent ? [selectedAgent] : agentUsage
+  const totalTokens = displayAgents.reduce((s, a) => s + a.totalTokens, 0)
+  const totalSessions = filteredSessions.length
   const totalCost = estimateCost(totalTokens)
 
   // Format helpers
@@ -155,12 +166,50 @@ export default function UsagePage() {
         </div>
       </div>
 
+      {/* Agent filter chips */}
+      <div className="flex items-center gap-2 mb-6" data-testid="usage-agent-filter">
+        <span className="text-label mr-1">Filter:</span>
+        <button
+          onClick={() => setFilterAgent("all")}
+          className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+            filterAgent === "all"
+              ? "bg-foreground text-background border-foreground"
+              : "bg-transparent text-muted-foreground border-border hover:border-foreground/40"
+          }`}
+        >
+          All Agents
+        </button>
+        {agentUsage.map(a => (
+          <button
+            key={a.id}
+            onClick={() => setFilterAgent(a.id)}
+            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+              filterAgent === a.id
+                ? "bg-foreground text-background border-foreground"
+                : "bg-transparent text-muted-foreground border-border hover:border-foreground/40"
+            }`}
+          >
+            {a.emoji} {a.name} ({fmtTokens(a.totalTokens)})
+          </button>
+        ))}
+      </div>
+
+      {/* Back button when filtered */}
+      {selectedAgent && (
+        <button
+          onClick={() => setFilterAgent("all")}
+          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4 transition-colors"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" /> Back to all agents
+        </button>
+      )}
+
       {/* Global Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
         <StatCard
           label="Total Tokens"
           value={fmtTokens(totalTokens)}
-          change="all agents combined"
+          change={selectedAgent ? selectedAgent.name : "all agents combined"}
           changeType="neutral"
           icon={<Zap />}
         />
@@ -174,14 +223,14 @@ export default function UsagePage() {
         <StatCard
           label="Sessions"
           value={totalSessions.toString()}
-          change={`${agentUsage.length} agents`}
+          change={selectedAgent ? `${selectedAgent.name} only` : `${agentUsage.length} agents`}
           changeType="neutral"
           icon={<Hash />}
         />
         <StatCard
-          label="Active Agents"
-          value={agentUsage.length.toString()}
-          change="across all channels"
+          label={selectedAgent ? "Channels" : "Active Agents"}
+          value={selectedAgent ? Object.keys(selectedAgent.channels).length.toString() : agentUsage.length.toString()}
+          change={selectedAgent ? "active channels" : "across all channels"}
           changeType="neutral"
           icon={<Clock />}
         />
@@ -245,42 +294,54 @@ export default function UsagePage() {
           </div>
 
           {/* Agent detail cards: channel + model breakdown */}
-          <h2 className="text-title mb-4">Breakdown by Agent</h2>
-          <div className="grid md:grid-cols-3 gap-5">
-            {agentUsage.map(agent => (
-              <Card key={agent.id}>
-                <CardContent className="p-5 space-y-4">
-                  <div className="flex items-center gap-2.5">
-                    <span className="text-2xl">{agent.emoji}</span>
-                    <div>
-                      <p className="text-sm font-semibold">{agent.name}</p>
-                      <p className="text-xs text-muted-foreground">{fmtTokens(agent.totalTokens)} tokens · {fmtCost(estimateCost(agent.totalTokens))}</p>
-                    </div>
-                  </div>
+          <h2 className="text-title mb-4">
+            {selectedAgent ? `${selectedAgent.emoji} ${selectedAgent.name} — Breakdown` : "Breakdown by Agent"}
+          </h2>
+          <div className={`grid gap-5 ${selectedAgent ? "md:grid-cols-2" : "md:grid-cols-3"}`}>
+            {displayAgents.map(agent => {
+              const channelEntries = Object.entries(agent.channels).sort(([, a], [, b]) => b - a)
+              const modelEntries = Object.entries(agent.models).sort(([, a], [, b]) => b - a)
+              const maxChTokens = Math.max(...channelEntries.map(([, v]) => v), 1)
 
-                  {/* Channel breakdown */}
-                  <div>
-                    <p className="text-label mb-2">By Channel</p>
-                    <div className="space-y-1.5">
-                      {Object.entries(agent.channels)
-                        .sort(([, a], [, b]) => b - a)
-                        .slice(0, 5)
-                        .map(([ch, tokens]) => (
-                          <div key={ch} className="flex items-center justify-between text-xs">
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0">{ch}</Badge>
-                            <span className="font-mono text-muted-foreground">{fmtTokens(tokens)}</span>
+              return (
+                <Card key={agent.id}>
+                  <CardContent className="p-5 space-y-4">
+                    <div className="flex items-center gap-2.5">
+                      <span className="text-2xl">{agent.emoji}</span>
+                      <div>
+                        <p className="text-sm font-semibold">{agent.name}</p>
+                        <p className="text-xs text-muted-foreground">{fmtTokens(agent.totalTokens)} tokens · {fmtCost(estimateCost(agent.totalTokens))}</p>
+                      </div>
+                    </div>
+
+                    {/* Channel breakdown with bars */}
+                    <div>
+                      <p className="text-label mb-2">By Channel</p>
+                      <div className="space-y-2">
+                        {channelEntries.slice(0, selectedAgent ? 10 : 5).map(([ch, tokens]) => (
+                          <div key={ch}>
+                            <div className="flex items-center justify-between text-xs mb-1">
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0">{ch}</Badge>
+                              <span className="font-mono text-muted-foreground">{fmtTokens(tokens)}</span>
+                            </div>
+                            {selectedAgent && (
+                              <div className="h-1.5 bg-muted/40 rounded-full overflow-hidden">
+                                <div
+                                  className="h-full bg-foreground/15 rounded-full transition-all duration-300"
+                                  style={{ width: `${(tokens / maxChTokens) * 100}%` }}
+                                />
+                              </div>
+                            )}
                           </div>
                         ))}
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Model breakdown */}
-                  <div>
-                    <p className="text-label mb-2">By Model</p>
-                    <div className="space-y-1.5">
-                      {Object.entries(agent.models)
-                        .sort(([, a], [, b]) => b - a)
-                        .map(([model, tokens]) => (
+                    {/* Model breakdown */}
+                    <div>
+                      <p className="text-label mb-2">By Model</p>
+                      <div className="space-y-1.5">
+                        {modelEntries.map(([model, tokens]) => (
                           <div key={model} className="flex items-center justify-between text-xs">
                             <code className="bg-muted px-1.5 py-0.5 rounded text-[10px]">
                               {model.replace("anthropic/", "").replace("openai/", "")}
@@ -288,11 +349,40 @@ export default function UsagePage() {
                             <span className="font-mono text-muted-foreground">{fmtTokens(tokens)}</span>
                           </div>
                         ))}
+                      </div>
                     </div>
+                  </CardContent>
+                </Card>
+              )
+            })}
+
+            {/* Session list when agent is selected */}
+            {selectedAgent && (
+              <Card>
+                <CardContent className="p-5 space-y-3">
+                  <p className="text-label">Recent Sessions ({filteredSessions.length})</p>
+                  <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                    {filteredSessions
+                      .sort((a, b) => b.updatedAt - a.updatedAt)
+                      .slice(0, 20)
+                      .map((s, i) => (
+                        <div key={s.key || i} className="flex items-center justify-between py-2 border-b border-border/50 last:border-0">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-xs font-medium truncate">{s.displayName || s.key}</p>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <Badge variant="outline" className="text-[10px] px-1 py-0">{s.channel}</Badge>
+                              <span className="text-[10px] text-muted-foreground font-mono">{fmtTokens(s.totalTokens)}</span>
+                            </div>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground whitespace-nowrap ml-2">
+                            {fmtTime(s.updatedAt)}
+                          </span>
+                        </div>
+                      ))}
                   </div>
                 </CardContent>
               </Card>
-            ))}
+            )}
           </div>
         </>
       )}
