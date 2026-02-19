@@ -83,7 +83,7 @@ export default function KanbanPage() {
   }>>([])
   const [historySortBy, setHistorySortBy] = useState<"date" | "agent" | "duration">("date")
   const [historyAgentFilter, setHistoryAgentFilter] = useState<string>("all")
-  const [issueAssignments, setIssueAssignments] = useState<Record<string, string>>({})
+  const [issueAssignments, setIssueAssignments] = useState<Record<string, { dev: string; qa: string | null }>>({})
   const [gatewayActivity, setGatewayActivity] = useState<any[]>([])
   const [gatewayError, setGatewayError] = useState<string | null>(null)
 
@@ -91,7 +91,7 @@ export default function KanbanPage() {
     try {
       // Fetch issue assignments from local DB
       const assignmentsRes = await fetch("/api/issue-assignments")
-      let currentAssignments: Record<string, string> = {}
+      let currentAssignments: Record<string, { dev: string; qa: string | null }> = {}
       if (assignmentsRes.ok) {
         const { assignments } = await assignmentsRes.json()
         currentAssignments = assignments || {}
@@ -150,7 +150,7 @@ export default function KanbanPage() {
               })
 
               if (res.ok) {
-                currentAssignments[issue.id] = agentName
+                currentAssignments[issue.id] = { dev: agentName, qa: null }
                 autoInitialized++
                 console.log(`[Kanban] Auto-assigned ${issue.identifier} → ${agentName}`)
               }
@@ -326,18 +326,32 @@ export default function KanbanPage() {
   }
 
   // Assign agent to issue (save to local DB)
-  const assignIssueToAgent = async (issueId: string, agentName: string) => {
+  const assignIssueToAgent = async (issueId: string, agentName: string, role: "dev" | "qa" = "dev") => {
     try {
+      const body: any = { issueId, role }
+      if (role === "qa") {
+        body.qaAgent = agentName
+      } else {
+        body.agentName = agentName
+      }
+
       const res = await fetch("/api/issue-assignments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ issueId, agentName }),
+        body: JSON.stringify(body),
       })
 
       if (res.ok) {
         // Update local state
-        setIssueAssignments(prev => ({ ...prev, [issueId]: agentName }))
-        console.log(`[Kanban] Assigned ${issueId} to ${agentName}`)
+        setIssueAssignments(prev => {
+          const existing = prev[issueId] || { dev: "", qa: null }
+          if (role === "qa") {
+            return { ...prev, [issueId]: { ...existing, qa: agentName } }
+          } else {
+            return { ...prev, [issueId]: { ...existing, dev: agentName } }
+          }
+        })
+        console.log(`[Kanban] Assigned ${issueId} ${role}:${agentName}`)
       } else {
         console.error("[Kanban] Failed to assign issue:", await res.text())
       }
@@ -346,15 +360,38 @@ export default function KanbanPage() {
     }
   }
 
-  // Get agent for an issue (from local assignments)
-  const getIssueAgent = (issueId: string): string | null => {
-    return issueAssignments[issueId] || null
+  // Get the ACTIVE agent for an issue based on its column/state
+  const getIssueAgent = (issueId: string, column?: string): string | null => {
+    const assignment = issueAssignments[issueId]
+    if (!assignment) return null
+
+    // Dynamic: show QA agent when in review/QA, dev agent otherwise
+    if (column === "done") {
+      // Done: show QA agent if exists, otherwise dev
+      return assignment.qa || assignment.dev
+    }
+    // For in-progress and backlog, show dev agent
+    return assignment.dev || null
   }
 
-  // Filter issues by agent (uses local assignments)
+  // Get dev agent specifically
+  const getDevAgent = (issueId: string): string | null => {
+    return issueAssignments[issueId]?.dev || null
+  }
+
+  // Get QA agent specifically
+  const getQaAgent = (issueId: string): string | null => {
+    return issueAssignments[issueId]?.qa || null
+  }
+
+  // Filter issues by agent (checks both dev and qa assignments)
   const filteredIssues = agentFilter === "all" 
     ? issues 
-    : issues.filter(issue => getIssueAgent(issue.id) === agentFilter)
+    : issues.filter(issue => {
+        const assignment = issueAssignments[issue.id]
+        if (!assignment) return false
+        return assignment.dev === agentFilter || assignment.qa === agentFilter
+      })
 
   const columns = [
     { id: "backlog", title: "Backlog", issues: filteredIssues.filter(i => i.column === "backlog") },
@@ -455,8 +492,10 @@ export default function KanbanPage() {
                     <div className="space-y-3 min-h-[400px] rounded-lg border-2 border-dashed border-muted p-3">
                       <AnimatePresence>
                         {column.issues.map((issue, index) => {
-                          const assignedAgentId = getIssueAgent(issue.id)
-                          const agent = agents.find(a => a.agentId === assignedAgentId)
+                          const devAgentId = getDevAgent(issue.id)
+                          const qaAgentId = getQaAgent(issue.id)
+                          const activeAgentId = getIssueAgent(issue.id, column.id)
+                          const agent = agents.find(a => a.agentId === activeAgentId)
                           return (
                             <motion.div
                               key={issue.id}
@@ -505,37 +544,82 @@ export default function KanbanPage() {
                                   </div>
                                 </CardHeader>
                                 <CardContent className="space-y-2">
-                                  {/* Assignee Dropdown - CLICKABLE */}
-                                  <div onClick={(e) => e.stopPropagation()}>
-                                    <Select 
-                                      value={assignedAgentId || "unassigned"}
-                                      onValueChange={(value) => {
-                                        if (value !== "unassigned") {
-                                          assignIssueToAgent(issue.id, value)
-                                        }
-                                      }}
-                                    >
-                                      <SelectTrigger className="w-full h-8">
-                                        <SelectValue>
-                                          {agent ? (
-                                            <div className="flex items-center gap-2">
-                                              <span className="text-base">{agent.agentEmoji}</span>
-                                              <span className="text-xs font-semibold">{agent.agentName}</span>
-                                            </div>
-                                          ) : (
-                                            <span className="text-xs text-muted-foreground">Unassigned</span>
-                                          )}
-                                        </SelectValue>
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        <SelectItem value="unassigned">Unassigned</SelectItem>
-                                        {agents.map(a => (
-                                          <SelectItem key={a.agentId} value={a.agentId}>
-                                            {a.agentEmoji} {a.agentName}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
+                                  {/* Dev + QA Assignment Chips */}
+                                  <div onClick={(e) => e.stopPropagation()} className="space-y-1">
+                                    {/* Dev Agent */}
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[10px] uppercase font-bold text-muted-foreground w-8">Dev</span>
+                                      <Select 
+                                        value={devAgentId || "unassigned"}
+                                        onValueChange={(value) => {
+                                          if (value !== "unassigned") {
+                                            assignIssueToAgent(issue.id, value, "dev")
+                                          }
+                                        }}
+                                      >
+                                        <SelectTrigger className="h-7 text-xs flex-1">
+                                          <SelectValue>
+                                            {(() => {
+                                              const devAgent = agents.find(a => a.agentId === devAgentId)
+                                              return devAgent ? (
+                                                <span className="flex items-center gap-1">
+                                                  <span>{devAgent.agentEmoji}</span>
+                                                  <span className="font-semibold">{devAgent.agentName}</span>
+                                                </span>
+                                              ) : (
+                                                <span className="text-muted-foreground">Unassigned</span>
+                                              )
+                                            })()}
+                                          </SelectValue>
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="unassigned">Unassigned</SelectItem>
+                                          {agents.map(a => (
+                                            <SelectItem key={a.agentId} value={a.agentId}>
+                                              {a.agentEmoji} {a.agentName}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    {/* QA Agent - show for in-progress and done */}
+                                    {(column.id === "in-progress" || column.id === "done") && (
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-[10px] uppercase font-bold text-muted-foreground w-8">QA</span>
+                                        <Select 
+                                          value={qaAgentId || "unassigned"}
+                                          onValueChange={(value) => {
+                                            if (value !== "unassigned") {
+                                              assignIssueToAgent(issue.id, value, "qa")
+                                            }
+                                          }}
+                                        >
+                                          <SelectTrigger className="h-7 text-xs flex-1">
+                                            <SelectValue>
+                                              {(() => {
+                                                const qaAgent = agents.find(a => a.agentId === qaAgentId)
+                                                return qaAgent ? (
+                                                  <span className="flex items-center gap-1">
+                                                    <span>{qaAgent.agentEmoji}</span>
+                                                    <span className="font-semibold">{qaAgent.agentName}</span>
+                                                  </span>
+                                                ) : (
+                                                  <span className="text-muted-foreground">Unassigned</span>
+                                                )
+                                              })()}
+                                            </SelectValue>
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="unassigned">Unassigned</SelectItem>
+                                            {agents.map(a => (
+                                              <SelectItem key={a.agentId} value={a.agentId}>
+                                                {a.agentEmoji} {a.agentName}
+                                              </SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                    )}
                                   </div>
                                   {issue.labels.length > 0 && (
                                     <div className="flex flex-wrap gap-1">
@@ -817,7 +901,7 @@ export default function KanbanPage() {
                 {/* Current Task */}
                 {(() => {
                   const currentTask = issues.find(
-                    issue => getIssueAgent(issue.id) === selectedAgent.agentId && issue.column === "in-progress"
+                    issue => getIssueAgent(issue.id, issue.column) === selectedAgent.agentId && issue.column === "in-progress"
                   )
                   
                   if (currentTask) {
@@ -908,7 +992,7 @@ export default function KanbanPage() {
                   } else {
                     // No current task - show next task or idle state
                     const nextTask = issues.find(
-                      issue => getIssueAgent(issue.id) === selectedAgent.agentId && issue.column === "backlog"
+                      issue => getIssueAgent(issue.id, issue.column) === selectedAgent.agentId && issue.column === "backlog"
                     )
 
                     if (nextTask) {
@@ -990,7 +1074,7 @@ export default function KanbanPage() {
                 {/* Completed Tasks Summary */}
                 {(() => {
                   const completedTasks = issues.filter(
-                    issue => getIssueAgent(issue.id) === selectedAgent.agentId && issue.column === "done"
+                    issue => getIssueAgent(issue.id, issue.column) === selectedAgent.agentId && issue.column === "done"
                   )
                   
                   if (completedTasks.length > 0) {

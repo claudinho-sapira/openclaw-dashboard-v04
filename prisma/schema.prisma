@@ -25,7 +25,8 @@ model Task {
 model IssueAssignment {
   id         String   @id @default(uuid())
   issueId    String   @unique // Linear issue ID (e.g., "e2b77c2b-...")
-  agentName  String   // "pm", "builder", "qa"
+  agentName  String   // "pm", "builder", "qa" — primary/dev assignee
+  qaAgent    String?  // QA agent for review phase (e.g., "qa")
   assignedAt DateTime @default(now())
   updatedAt  DateTime @updatedAt
 }

@@ -14,10 +14,13 @@ export async function GET(request: NextRequest) {
 
     const assignments = await prisma.issueAssignment.findMany();
     
-    // Convert to map for easy lookup
-    const assignmentMap: Record<string, string> = {};
+    // Convert to map for easy lookup (includes both dev and qa agents)
+    const assignmentMap: Record<string, { dev: string; qa: string | null }> = {};
     assignments.forEach(a => {
-      assignmentMap[a.issueId] = a.agentName;
+      assignmentMap[a.issueId] = {
+        dev: a.agentName,
+        qa: a.qaAgent,
+      };
     });
 
     return NextResponse.json({ assignments: assignmentMap });
@@ -39,31 +42,63 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { issueId, agentName } = body;
+    const { issueId, agentName, qaAgent, role } = body;
 
-    if (!issueId || !agentName) {
+    if (!issueId) {
       return NextResponse.json(
-        { error: "issueId and agentName are required" },
+        { error: "issueId is required" },
         { status: 400 }
       );
     }
 
-    // Validate agentName
-    if (!["pm", "builder", "qa"].includes(agentName)) {
+    // Validate agent names
+    const validAgents = ["pm", "builder", "qa"];
+    if (agentName && !validAgents.includes(agentName)) {
       return NextResponse.json(
         { error: "Invalid agentName. Must be: pm, builder, or qa" },
         { status: 400 }
       );
     }
+    if (qaAgent && !validAgents.includes(qaAgent)) {
+      return NextResponse.json(
+        { error: "Invalid qaAgent. Must be: pm, builder, or qa" },
+        { status: 400 }
+      );
+    }
+
+    // Build update data based on what's provided
+    const updateData: any = { updatedAt: new Date() };
+    const createData: any = { issueId };
+    
+    if (role === "qa") {
+      // Updating QA agent only
+      updateData.qaAgent = qaAgent || agentName;
+      createData.agentName = "builder"; // default dev agent
+      createData.qaAgent = qaAgent || agentName;
+    } else if (role === "dev") {
+      // Updating dev agent only
+      updateData.agentName = agentName;
+      createData.agentName = agentName;
+    } else {
+      // Legacy: update dev agent, optionally qa
+      if (agentName) {
+        updateData.agentName = agentName;
+        createData.agentName = agentName;
+      }
+      if (qaAgent) {
+        updateData.qaAgent = qaAgent;
+        createData.qaAgent = qaAgent;
+      }
+    }
 
     // Upsert assignment
     const assignment = await prisma.issueAssignment.upsert({
       where: { issueId },
-      update: { agentName, updatedAt: new Date() },
-      create: { issueId, agentName },
+      update: updateData,
+      create: createData,
     });
 
-    console.log(`[Issue Assignment] ${issueId} → ${agentName}`);
+    console.log(`[Issue Assignment] ${issueId} → dev:${assignment.agentName} qa:${assignment.qaAgent}`);
 
     return NextResponse.json({ success: true, assignment });
   } catch (error) {
