@@ -50,3 +50,4 @@ dev.log
 
 /lib/generated/prisma
 .env.vercel
+.env.prod
