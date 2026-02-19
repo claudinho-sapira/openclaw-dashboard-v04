@@ -263,55 +263,160 @@ function IssueCard({ issue, onSelect }: { issue: LinearIssue; onSelect: () => vo
   )
 }
 
-/* ── Issue Detail Panel ────────────────────────────────── */
+/* ── Issue Detail Panel (Enhanced) ─────────────────────── */
+
+interface IssueComment {
+  id: string
+  body: string
+  createdAt: string
+  user: { name: string; avatarUrl: string | null } | null
+}
 
 function IssueDetail({ issue, onClose }: { issue: LinearIssue; onClose: () => void }) {
   const agent = issue.assigneeId ? AGENT_MAP[issue.assigneeId] : null
+  const [comments, setComments] = useState<IssueComment[]>([])
+  const [loadingComments, setLoadingComments] = useState(true)
+  const [detailData, setDetailData] = useState<{
+    startedAt?: string | null
+    completedAt?: string | null
+  }>({})
+
+  // Fetch issue detail + comments
+  useEffect(() => {
+    setLoadingComments(true)
+    fetch(`/api/linear/issues/${issue.id}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data) {
+          setComments(data.comments || [])
+          setDetailData({
+            startedAt: data.issue?.startedAt,
+            completedAt: data.issue?.completedAt,
+          })
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingComments(false))
+  }, [issue.id])
+
+  // Escape key
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose()
+    }
+    window.addEventListener("keydown", handler)
+    return () => window.removeEventListener("keydown", handler)
+  }, [onClose])
+
+  // Column indicator
+  const colConfig = COLUMNS.find(c => c.id === issue.column) || COLUMNS[0]
+
+  // Time in state
+  const timeInState = (() => {
+    const ref = issue.column === "done" && detailData.completedAt
+      ? detailData.completedAt
+      : issue.column === "in-progress" && detailData.startedAt
+      ? detailData.startedAt
+      : issue.updatedAt
+    const mins = Math.floor((Date.now() - new Date(ref).getTime()) / 60000)
+    if (mins < 60) return `${mins}m`
+    const hrs = Math.floor(mins / 60)
+    if (hrs < 24) return `${hrs}h ${mins % 60}m`
+    const days = Math.floor(hrs / 24)
+    return `${days}d ${hrs % 24}h`
+  })()
+
+  // Detect telemetry comments
+  const isTelemetry = (body: string) =>
+    /^\[(START|TELEMETRY|ERROR|BLOCKED|READY_FOR_QA)\]/.test(body.trim())
 
   return (
     <>
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/30 z-40" onClick={onClose} />
+      <div
+        className="fixed inset-0 bg-black/30 z-40 animate-in fade-in duration-200"
+        onClick={onClose}
+      />
 
-      {/* Panel */}
-      <div className="fixed right-0 top-0 bottom-0 w-full max-w-lg bg-background border-l z-50 overflow-y-auto">
-        <div className="p-6 space-y-6">
-          {/* Header */}
-          <div className="flex items-start justify-between">
-            <div>
+      {/* Slide-over panel */}
+      <div
+        className="fixed right-0 top-0 bottom-0 w-full max-w-xl bg-background border-l z-50 overflow-y-auto animate-in slide-in-from-right duration-300"
+        data-testid="issue-detail-panel"
+      >
+        {/* Sticky header */}
+        <div className="sticky top-0 bg-background/95 backdrop-blur-sm border-b z-10 px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${colConfig.color}`} />
               <span className="text-xs font-mono text-muted-foreground">{issue.identifier}</span>
-              <h2 className="text-lg font-semibold mt-1">{issue.title}</h2>
+              <Badge variant="secondary" className="text-[10px]">{issue.state}</Badge>
             </div>
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-md hover:bg-muted text-muted-foreground"
-            >
-              ✕
-            </button>
+            <div className="flex items-center gap-2">
+              <a href={issue.url} target="_blank" rel="noopener noreferrer">
+                <Button variant="ghost" size="sm" className="h-7 px-2">
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </Button>
+              </a>
+              <button
+                onClick={onClose}
+                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground"
+                data-testid="issue-detail-close"
+              >
+                ✕
+              </button>
+            </div>
           </div>
+        </div>
+
+        <div className="p-6 space-y-6">
+          {/* Title */}
+          <h2 className="text-lg font-semibold leading-snug">{issue.title}</h2>
 
           {/* Meta grid */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4 py-4 border-y">
             <div>
-              <p className="text-label mb-1">Status</p>
-              <Badge variant="secondary">{issue.state}</Badge>
+              <p className="text-label mb-1.5">Priority</p>
+              <span className="text-sm font-medium">{priorityDot(issue.priority)} {issue.priorityLabel}</span>
             </div>
             <div>
-              <p className="text-label mb-1">Priority</p>
-              <span className="text-sm">{priorityDot(issue.priority)} {issue.priorityLabel}</span>
-            </div>
-            <div>
-              <p className="text-label mb-1">Assignee</p>
+              <p className="text-label mb-1.5">Assignee</p>
               {agent ? (
-                <span className="text-sm">{agent.emoji} {agent.name}</span>
+                <span className="text-sm font-medium">{agent.emoji} {agent.name}</span>
               ) : (
                 <span className="text-sm text-muted-foreground">Unassigned</span>
               )}
             </div>
             <div>
-              <p className="text-label mb-1">Updated</p>
-              <span className="text-sm">{new Date(issue.updatedAt).toLocaleDateString()}</span>
+              <p className="text-label mb-1.5">Time in state</p>
+              <span className="text-sm font-medium flex items-center gap-1">
+                <Clock className="h-3 w-3 text-muted-foreground" />
+                {timeInState}
+              </span>
             </div>
+          </div>
+
+          {/* Dates */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-label mb-1">Created</p>
+              <span className="text-sm">{new Date(issue.createdAt).toLocaleDateString()} ({timeAgo(issue.createdAt)})</span>
+            </div>
+            <div>
+              <p className="text-label mb-1">Updated</p>
+              <span className="text-sm">{new Date(issue.updatedAt).toLocaleDateString()} ({timeAgo(issue.updatedAt)})</span>
+            </div>
+            {detailData.startedAt && (
+              <div>
+                <p className="text-label mb-1">Started</p>
+                <span className="text-sm">{new Date(detailData.startedAt).toLocaleDateString()}</span>
+              </div>
+            )}
+            {detailData.completedAt && (
+              <div>
+                <p className="text-label mb-1">Completed</p>
+                <span className="text-sm">{new Date(detailData.completedAt).toLocaleDateString()}</span>
+              </div>
+            )}
           </div>
 
           {/* Labels */}
@@ -330,15 +435,63 @@ function IssueDetail({ issue, onClose }: { issue: LinearIssue; onClose: () => vo
           {issue.description && (
             <div>
               <p className="text-label mb-2">Description</p>
-              <div className="text-sm text-muted-foreground whitespace-pre-wrap bg-muted/30 rounded-lg p-4 border">
+              <div className="text-sm text-muted-foreground whitespace-pre-wrap bg-muted/30 rounded-lg p-4 border leading-relaxed">
                 {issue.description}
               </div>
             </div>
           )}
 
-          {/* Actions */}
-          <div className="pt-4 border-t flex gap-3">
-            <Button variant="outline" size="sm" onClick={onClose}>Close</Button>
+          {/* Comments / Activity */}
+          <div>
+            <p className="text-label mb-3">
+              Activity
+              {!loadingComments && (
+                <span className="text-muted-foreground font-normal ml-1">({comments.length})</span>
+              )}
+            </p>
+
+            {loadingComments ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading activity...
+              </div>
+            ) : comments.length === 0 ? (
+              <div className="text-sm text-muted-foreground py-4 text-center">
+                No comments yet
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {comments.map(c => (
+                  <div
+                    key={c.id}
+                    className={`rounded-lg border p-3 ${
+                      isTelemetry(c.body)
+                        ? "bg-blue-50/50 dark:bg-blue-950/10 border-blue-200 dark:border-blue-900"
+                        : "bg-muted/20"
+                    }`}
+                    data-testid="issue-comment"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-medium">
+                        {c.user?.name || "System"}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {new Date(c.createdAt).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed font-mono text-xs">
+                      {c.body.length > 500 ? c.body.slice(0, 500) + "…" : c.body}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Bottom actions */}
+          <div className="pt-4 border-t flex gap-3 sticky bottom-0 bg-background py-4">
+            <Button variant="outline" size="sm" onClick={onClose}>
+              Close <span className="text-[10px] text-muted-foreground ml-1.5">Esc</span>
+            </Button>
             <a href={issue.url} target="_blank" rel="noopener noreferrer">
               <Button size="sm">
                 Open in Linear <ExternalLink className="h-3.5 w-3.5 ml-1.5" />
