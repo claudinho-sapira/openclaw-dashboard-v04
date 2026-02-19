@@ -1124,29 +1124,18 @@ export default function KanbanPage() {
           {selectedIssue && (
             <>
               <DialogHeader>
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-sm font-mono text-muted-foreground">
-                        {selectedIssue.identifier}
-                      </span>
-                      {selectedIssue.isNext && (
-                        <Badge variant="default" className="text-xs">
-                          NEXT 🔜
-                        </Badge>
-                      )}
-                    </div>
-                    <DialogTitle className="text-xl">{selectedIssue.title}</DialogTitle>
+                <div className="flex-1 pr-8">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-sm font-mono text-muted-foreground">
+                      {selectedIssue.identifier}
+                    </span>
+                    {selectedIssue.isNext && (
+                      <Badge variant="default" className="text-xs">
+                        NEXT 🔜
+                      </Badge>
+                    )}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    asChild
-                  >
-                    <a href={selectedIssue.url} target="_blank" rel="noopener noreferrer">
-                      <ExternalLink className="h-4 w-4" />
-                    </a>
-                  </Button>
+                  <DialogTitle className="text-xl">{selectedIssue.title}</DialogTitle>
                 </div>
               </DialogHeader>
 
