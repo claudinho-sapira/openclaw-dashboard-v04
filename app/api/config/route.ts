@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { gatewayInvokeTool } from "@/lib/gateway";
 
-// GET - Read openclaw.json config via gateway read tool
+const WORKSPACE_URL = process.env.NEXT_PUBLIC_WORKSPACE_SERVER_URL || "http://localhost:18790";
+
 export async function GET() {
   try {
     const session = await auth();
@@ -10,36 +10,26 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const result = await gatewayInvokeTool("read", {
-      file_path: "~/.openclaw/openclaw.json",
-    });
-
-    // result.content[0].text has the file content
-    const rawText = result?.content?.[0]?.text || "";
-    let config;
-    try {
-      config = JSON.parse(rawText);
-    } catch {
+    const res = await fetch(`${WORKSPACE_URL}/config`, { cache: "no-store" });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
       return NextResponse.json(
-        { error: "Failed to parse config JSON", raw: rawText },
-        { status: 500 }
+        { error: "Failed to read config", details: err.error || res.statusText },
+        { status: 502 }
       );
     }
 
-    return NextResponse.json({ config, raw: rawText });
+    const data = await res.json();
+    return NextResponse.json(data);
   } catch (error) {
-    console.error("Failed to read config:", error);
+    console.error("Config read error:", error);
     return NextResponse.json(
-      {
-        error: "Failed to read config from gateway",
-        details: error instanceof Error ? error.message : String(error),
-      },
+      { error: "Cannot reach workspace server", details: error instanceof Error ? error.message : String(error) },
       { status: 502 }
     );
   }
 }
 
-// POST - Write config back via gateway write tool
 export async function POST(request: NextRequest) {
   try {
     const session = await auth();
@@ -49,27 +39,29 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
     const { config } = body;
-
     if (!config) {
-      return NextResponse.json({ error: "config is required" }, { status: 400 });
+      return NextResponse.json({ error: "config required" }, { status: 400 });
     }
 
-    // Validate it's valid JSON
-    const configStr = JSON.stringify(config, null, 2);
-
-    const result = await gatewayInvokeTool("write", {
-      file_path: "~/.openclaw/openclaw.json",
-      content: configStr,
+    const res = await fetch(`${WORKSPACE_URL}/config`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ config }),
     });
 
-    return NextResponse.json({ success: true, result });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      return NextResponse.json(
+        { error: "Failed to write config", details: err.error || res.statusText },
+        { status: 502 }
+      );
+    }
+
+    return NextResponse.json({ success: true });
   } catch (error) {
-    console.error("Failed to write config:", error);
+    console.error("Config write error:", error);
     return NextResponse.json(
-      {
-        error: "Failed to write config to gateway",
-        details: error instanceof Error ? error.message : String(error),
-      },
+      { error: "Cannot reach workspace server", details: error instanceof Error ? error.message : String(error) },
       { status: 502 }
     );
   }

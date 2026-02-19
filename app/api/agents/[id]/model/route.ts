@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
-import { gatewayInvokeTool } from "@/lib/gateway";
+
+const WORKSPACE_URL = process.env.NEXT_PUBLIC_WORKSPACE_SERVER_URL || "http://localhost:18790";
 
 export async function PATCH(
   request: NextRequest,
@@ -16,59 +17,37 @@ export async function PATCH(
     const { model } = await request.json();
 
     if (!model) {
-      return NextResponse.json(
-        { error: "Model is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Model is required" }, { status: 400 });
     }
 
-    // Step 1: Read current config
-    const readResult = await gatewayInvokeTool("read", {
-      file_path: "~/.openclaw/openclaw.json",
-    });
-
-    const rawText = readResult?.content?.[0]?.text || "";
-    let config;
-    try {
-      config = JSON.parse(rawText);
-    } catch {
-      return NextResponse.json(
-        { error: "Failed to parse openclaw.json" },
-        { status: 500 }
-      );
+    // Step 1: Read current config from workspace server
+    const readRes = await fetch(`${WORKSPACE_URL}/config`, { cache: "no-store" });
+    if (!readRes.ok) {
+      return NextResponse.json({ error: "Failed to read config" }, { status: 502 });
     }
+
+    const { config } = await readRes.json();
 
     // Step 2: Find agent and update model
     const agentList = config?.agents?.list || [];
     const agentIdx = agentList.findIndex((a: any) => a.id === id);
 
     if (agentIdx === -1) {
-      return NextResponse.json(
-        { error: `Agent '${id}' not found in config` },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: `Agent '${id}' not found` }, { status: 404 });
     }
 
     const oldModel = agentList[agentIdx].model?.primary;
-    agentList[agentIdx].model = {
-      ...agentList[agentIdx].model,
-      primary: model,
-    };
+    agentList[agentIdx].model = { ...agentList[agentIdx].model, primary: model };
 
-    // Step 3: Write updated config back
-    await gatewayInvokeTool("write", {
-      file_path: "~/.openclaw/openclaw.json",
-      content: JSON.stringify(config, null, 2),
+    // Step 3: Write back
+    const writeRes = await fetch(`${WORKSPACE_URL}/config`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ config }),
     });
 
-    // Step 4: Try to hot-swap via session_status (best effort)
-    try {
-      await gatewayInvokeTool("session_status", {
-        sessionKey: `agent:${id}:main`,
-        model: model,
-      });
-    } catch {
-      // Hot-swap is best-effort; config file change is the persistent one
+    if (!writeRes.ok) {
+      return NextResponse.json({ error: "Failed to write config" }, { status: 502 });
     }
 
     return NextResponse.json({
@@ -76,10 +55,10 @@ export async function PATCH(
       agentId: id,
       oldModel,
       newModel: model,
-      note: "Config updated. Model will apply on next agent interaction.",
+      note: "Config updated. Model applies on next agent interaction.",
     });
   } catch (error) {
-    console.error("Failed to change model:", error);
+    console.error("Model change error:", error);
     return NextResponse.json(
       { error: "Failed to change model", details: error instanceof Error ? error.message : String(error) },
       { status: 500 }
