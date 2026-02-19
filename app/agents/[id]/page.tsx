@@ -78,9 +78,28 @@ export default function AgentDetailPage() {
           const agentData = data.agents?.find((a: AgentStatus) => a.id === agentId)
           if (agentData) {
             setAgent(agentData)
-            setSelectedModel(agentData.model)
+            // Gateway returns model without provider prefix (e.g. "claude-opus-4-6")
+            // Normalize to match AVAILABLE_MODELS format (e.g. "anthropic/claude-opus-4-6")
+            const rawModel = agentData.model || ""
+            const matched = AVAILABLE_MODELS.find(m => 
+              m.value === rawModel || m.value.endsWith("/" + rawModel)
+            )
+            setSelectedModel(matched?.value || rawModel)
           }
         }
+
+        // Also try to get real model from config (source of truth)
+        try {
+          const cfgRes = await fetch("/api/config")
+          if (cfgRes.ok) {
+            const cfgData = await cfgRes.json()
+            const agentCfg = cfgData.config?.agents?.list?.find((a: any) => a.id === agentId)
+            if (agentCfg?.model?.primary) {
+              setSelectedModel(agentCfg.model.primary)
+            }
+          }
+        } catch {}
+
 
         if (configRes.ok) {
           const configData = await configRes.json()
