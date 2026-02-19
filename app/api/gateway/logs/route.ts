@@ -35,12 +35,12 @@ export async function GET() {
 
     // 2) Get session activity as pseudo-logs
     try {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (GATEWAY_TOKEN) headers["Authorization"] = `Bearer ${GATEWAY_TOKEN}`;
+      
       const sessRes = await fetch(`${GATEWAY_URL}/tools/invoke`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${GATEWAY_TOKEN}`,
-        },
+        headers,
         body: JSON.stringify({ tool: "sessions_list", arguments: {} }),
         cache: "no-store",
         signal: AbortSignal.timeout(8000),

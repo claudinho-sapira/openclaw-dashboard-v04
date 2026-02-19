@@ -452,9 +452,12 @@ function GatewayLogs() {
         const lines: string[] = data.logs || data.lines || []
         if (lines.length > 0) {
           setLogs(prev => {
-            const combined = [...prev, ...lines]
-            // Keep last 500 lines
-            return combined.slice(-500)
+            // Deduplicate: only add lines not already in previous
+            const prevSet = new Set(prev)
+            const newLines = lines.filter(l => !prevSet.has(l))
+            if (newLines.length === 0) return prev
+            const combined = [...prev, ...newLines].slice(-500)
+            return combined
           })
         }
       }
