@@ -49,3 +49,4 @@ tunnel-config.yml
 dev.log
 
 /lib/generated/prisma
+.env.vercel
