@@ -5,7 +5,7 @@ import { Card, CardContent, Badge } from "@/components/ds"
 import { Button } from "@/components/ds/button"
 import {
   RefreshCw, Save, Settings2, Users, MessageSquare, Zap, Shield, Terminal,
-  Loader2, CheckCircle2, AlertCircle, ChevronRight, Package,
+  Loader2, CheckCircle2, AlertCircle, ChevronRight, Package, Plus, X,
 } from "lucide-react"
 
 /* ── Types ──────────────────────────────────────────── */
@@ -210,6 +210,19 @@ export default function ConfigPage() {
               path={[activeSection]}
               onUpdate={updateField}
             />
+
+            {/* Add Agent button for agents section */}
+            {activeSection === "agents" && editedConfig && (
+              <AddAgentForm
+                onAdd={(agent) => {
+                  const updated = JSON.parse(JSON.stringify(editedConfig))
+                  if (!updated.agents) updated.agents = {}
+                  if (!updated.agents.list) updated.agents.list = []
+                  updated.agents.list.push(agent)
+                  setEditedConfig(updated)
+                }}
+              />
+            )}
           </div>
         </div>
       )}
@@ -392,6 +405,161 @@ function FieldRow({ label, value, onChange }: { label: string; value: any; onCha
           />
         )}
       </div>
+    </div>
+  )
+}
+
+/* ── Add Agent Form ─────────────────────────────── */
+
+const MODELS = [
+  { value: "anthropic/claude-opus-4-6", label: "Claude Opus 4" },
+  { value: "anthropic/claude-sonnet-4-5-20250514", label: "Claude Sonnet 4.5" },
+  { value: "anthropic/claude-sonnet-4-20250514", label: "Claude Sonnet 4" },
+  { value: "anthropic/claude-haiku-3-5-20241022", label: "Claude Haiku 3.5" },
+]
+
+function AddAgentForm({ onAdd }: { onAdd: (agent: any) => void }) {
+  const [open, setOpen] = useState(false)
+  const [form, setForm] = useState({
+    id: "",
+    name: "",
+    model: "anthropic/claude-sonnet-4-5-20250514",
+    emoji: "🤖",
+    theme: "",
+    workspace: "",
+  })
+
+  const canSubmit = form.id.trim() && form.name.trim()
+
+  const handleSubmit = () => {
+    if (!canSubmit) return
+    const basePath = "~/.openclaw"
+    onAdd({
+      id: form.id.toLowerCase().replace(/[^a-z0-9-]/g, ""),
+      name: form.name,
+      workspace: form.workspace || `${basePath}/workspace-${form.id}`,
+      agentDir: `${basePath}/agents/${form.id}/agent`,
+      model: { primary: form.model },
+      identity: {
+        name: form.name,
+        emoji: form.emoji,
+        theme: form.theme || `${form.name} agent`,
+      },
+      tools: { allow: ["exec", "read", "write", "edit", "sessions_list", "sessions_send", "session_status", "message"] },
+    })
+    setForm({ id: "", name: "", model: "anthropic/claude-sonnet-4-5-20250514", emoji: "🤖", theme: "", workspace: "" })
+    setOpen(false)
+  }
+
+  if (!open) {
+    return (
+      <div className="pt-4 border-t">
+        <Button variant="outline" size="sm" onClick={() => setOpen(true)} data-testid="add-agent-btn">
+          <Plus className="h-4 w-4" /> Add Agent
+        </Button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="pt-4 border-t">
+      <Card>
+        <CardContent className="p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold">New Agent</h3>
+            <button onClick={() => setOpen(false)} className="p-1 rounded hover:bg-muted text-muted-foreground">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            {/* ID */}
+            <div>
+              <label className="text-label mb-1 block">Agent ID *</label>
+              <input
+                type="text"
+                placeholder="e.g. devops"
+                value={form.id}
+                onChange={e => setForm({ ...form, id: e.target.value })}
+                className="w-full h-8 px-3 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20 font-mono"
+                data-testid="new-agent-id"
+              />
+              <p className="text-[10px] text-muted-foreground mt-1">Lowercase, no spaces</p>
+            </div>
+
+            {/* Name */}
+            <div>
+              <label className="text-label mb-1 block">Name *</label>
+              <input
+                type="text"
+                placeholder="e.g. Atlas"
+                value={form.name}
+                onChange={e => setForm({ ...form, name: e.target.value })}
+                className="w-full h-8 px-3 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20"
+                data-testid="new-agent-name"
+              />
+            </div>
+
+            {/* Emoji */}
+            <div>
+              <label className="text-label mb-1 block">Emoji</label>
+              <input
+                type="text"
+                value={form.emoji}
+                onChange={e => setForm({ ...form, emoji: e.target.value })}
+                className="w-20 h-8 px-3 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20 text-center text-lg"
+              />
+            </div>
+
+            {/* Model */}
+            <div>
+              <label className="text-label mb-1 block">Model</label>
+              <select
+                value={form.model}
+                onChange={e => setForm({ ...form, model: e.target.value })}
+                className="w-full h-8 px-3 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20"
+                data-testid="new-agent-model"
+              >
+                {MODELS.map(m => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Theme */}
+            <div className="col-span-2">
+              <label className="text-label mb-1 block">Theme / Description</label>
+              <input
+                type="text"
+                placeholder="e.g. infrastructure and deployment specialist"
+                value={form.theme}
+                onChange={e => setForm({ ...form, theme: e.target.value })}
+                className="w-full h-8 px-3 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20"
+              />
+            </div>
+
+            {/* Workspace */}
+            <div className="col-span-2">
+              <label className="text-label mb-1 block">Workspace Path</label>
+              <input
+                type="text"
+                placeholder={`~/.openclaw/workspace-${form.id || "agent"}`}
+                value={form.workspace}
+                onChange={e => setForm({ ...form, workspace: e.target.value })}
+                className="w-full h-8 px-3 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20 font-mono text-xs"
+              />
+              <p className="text-[10px] text-muted-foreground mt-1">Leave empty for default path</p>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button size="sm" disabled={!canSubmit} onClick={handleSubmit} data-testid="add-agent-submit">
+              <Plus className="h-3.5 w-3.5" /> Add Agent
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   )
 }
