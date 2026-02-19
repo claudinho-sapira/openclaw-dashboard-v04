@@ -3,32 +3,17 @@
 import { signIn } from "next-auth/react"
 import { useState, Suspense } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Label } from "@/components/ui/label"
-import { AuroraBackground } from "@/components/ui/aurora-background"
-import { motion } from "framer-motion"
+import { Loader2, AlertCircle } from "lucide-react"
 
 function SignInForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const callbackUrl = searchParams.get("callbackUrl") || "/"
-  
+
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
-
-  const handleGoogleSignIn = async () => {
-    setLoading(true)
-    setError("")
-    try {
-      await signIn("google", { callbackUrl })
-    } catch (err) {
-      setError("Failed to sign in with Google")
-      setLoading(false)
-    }
-  }
 
   const handleCredentialsSignIn = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -36,7 +21,6 @@ function SignInForm() {
     setError("")
 
     try {
-      // NextAuth v5: signIn with redirect: false returns a URL string or undefined
       const result = await signIn("credentials", {
         email,
         password,
@@ -44,17 +28,14 @@ function SignInForm() {
         callbackUrl,
       })
 
-      // In v5 beta, result may be a string (redirect URL) on success, or undefined
       if (typeof result === "string") {
-        // Success — redirect URL returned
         router.push(result)
         return
       }
 
-      // v4 compat: result might be { error, ok, url }
       if (result && typeof result === "object") {
         if ((result as any).error) {
-          setError("Invalid email or password")
+          setError("Invalid credentials")
           setLoading(false)
           return
         }
@@ -64,151 +45,129 @@ function SignInForm() {
         }
       }
 
-      // Fallback: if no error, try navigating
       router.push(callbackUrl)
     } catch (err: any) {
-      // NextAuth v5 may throw CredentialsSignin error
-      if (err?.message?.includes("CredentialsSignin") || err?.type === "CredentialsSignin") {
-        setError("Invalid email or password")
-      } else {
-        setError("Invalid email or password")
-      }
+      setError("Invalid credentials")
       setLoading(false)
     }
   }
 
   return (
-    <AuroraBackground>
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6 }}
-        className="relative z-10"
-      >
-        {/* Glassmorphism Card */}
-        <div className="w-full max-w-md mx-auto px-4">
-          <div className="relative backdrop-blur-xl bg-white/10 dark:bg-black/10 border border-white/20 dark:border-white/10 rounded-2xl shadow-2xl p-8">
-            {/* Header */}
-            <div className="text-center mb-8">
-              <h1 className="text-4xl font-bold mb-2 bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-violet-600 dark:from-blue-400 dark:to-violet-400">
-                Sapira Team
-              </h1>
-              <p className="text-lg text-slate-700 dark:text-slate-300">
-                Agent Management Tower
-              </p>
-            </div>
-
-            {/* Error Message */}
-            {error && (
-              <div className="mb-6 p-3 rounded-lg bg-red-500/20 border border-red-500/50 text-red-700 dark:text-red-300 text-sm">
-                {error}
-              </div>
-            )}
-
-            {/* Google Sign In Button */}
-            <Button
-              onClick={handleGoogleSignIn}
-              disabled={loading}
-              className="w-full bg-white hover:bg-gray-50 text-slate-900 font-semibold py-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 mb-6"
-            >
-              <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24">
-                <path
-                  fill="currentColor"
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                />
-                <path
-                  fill="currentColor"
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                />
-                <path
-                  fill="currentColor"
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                />
-                <path
-                  fill="currentColor"
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                />
-              </svg>
-              Sign in with Google
-            </Button>
-
-            {/* Separator */}
-            <div className="relative flex items-center justify-center my-6">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-white/20"></div>
-              </div>
-              <div className="relative px-4 bg-white/20 dark:bg-black/20 backdrop-blur-sm rounded-full">
-                <span className="text-sm text-slate-600 dark:text-slate-400">Or continue with</span>
-              </div>
-            </div>
-
-            {/* Credentials Form */}
-            <form onSubmit={handleCredentialsSignIn} className="space-y-4">
-              <div>
-                <Label htmlFor="email" className="text-slate-700 dark:text-slate-300 font-medium">
-                  Email
-                </Label>
-                <Input
-                  id="email"
-                  type="text"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  disabled={loading}
-                  className="mt-1 bg-white/50 dark:bg-black/50 border-white/20 backdrop-blur-sm focus:border-blue-500 focus:ring-blue-500"
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="password" className="text-slate-700 dark:text-slate-300 font-medium">
-                  Password
-                </Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  disabled={loading}
-                  className="mt-1 bg-white/50 dark:bg-black/50 border-white/20 backdrop-blur-sm focus:border-blue-500 focus:ring-blue-500"
-                />
-              </div>
-
-              <Button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-700 hover:to-violet-700 text-white font-semibold py-6 rounded-xl shadow-lg hover:shadow-xl transition-all duration-200 mt-6"
-              >
-                {loading ? "Signing in..." : "Let's go"}
-              </Button>
-            </form>
+    <div className="min-h-screen flex items-center justify-center bg-background px-4">
+      <div className="w-full max-w-sm">
+        {/* Logo */}
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-foreground text-background text-lg font-bold mb-4">
+            OC
           </div>
+          <h1 className="text-xl font-semibold text-foreground">Sign in to OpenClaw</h1>
+          <p className="text-sm text-muted-foreground mt-1">Agent Management Dashboard</p>
         </div>
-      </motion.div>
-    </AuroraBackground>
+
+        {/* Card */}
+        <div className="border rounded-xl p-6 bg-background" data-testid="signin-card">
+          {/* Error */}
+          {error && (
+            <div className="flex items-center gap-2 mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm" data-testid="signin-error">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              {error}
+            </div>
+          )}
+
+          {/* Credentials Form */}
+          <form onSubmit={handleCredentialsSignIn} className="space-y-4">
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-foreground mb-1.5">
+                Username
+              </label>
+              <input
+                id="email"
+                type="text"
+                placeholder="admin"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                required
+                disabled={loading}
+                autoComplete="username"
+                autoFocus
+                className="w-full h-10 px-3 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-foreground/10 focus:border-foreground/30 transition-colors disabled:opacity-50"
+                data-testid="signin-username"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium text-foreground mb-1.5">
+                Password
+              </label>
+              <input
+                id="password"
+                type="password"
+                placeholder="••••••••"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                required
+                disabled={loading}
+                autoComplete="current-password"
+                className="w-full h-10 px-3 text-sm border rounded-lg bg-background focus:outline-none focus:ring-2 focus:ring-foreground/10 focus:border-foreground/30 transition-colors disabled:opacity-50"
+                data-testid="signin-password"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full h-10 bg-foreground text-background text-sm font-medium rounded-lg hover:bg-foreground/90 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              data-testid="signin-submit"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Signing in...
+                </>
+              ) : (
+                "Sign in"
+              )}
+            </button>
+          </form>
+
+          {/* Divider + Google */}
+          <div className="relative flex items-center my-5">
+            <div className="flex-1 border-t" />
+            <span className="px-3 text-xs text-muted-foreground">or</span>
+            <div className="flex-1 border-t" />
+          </div>
+
+          <button
+            onClick={() => signIn("google", { callbackUrl })}
+            disabled={loading}
+            className="w-full h-10 border rounded-lg text-sm font-medium text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            data-testid="signin-google"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+            </svg>
+            Continue with Google
+          </button>
+        </div>
+
+        {/* Footer */}
+        <p className="text-center text-[11px] text-muted-foreground mt-6">
+          OpenClaw Dashboard · Sapira AI
+        </p>
+      </div>
+    </div>
   )
 }
 
 export default function SignInPage() {
   return (
     <Suspense fallback={
-      <AuroraBackground>
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="relative z-10"
-        >
-          <div className="w-full max-w-md mx-auto px-4">
-            <div className="relative backdrop-blur-xl bg-white/10 dark:bg-black/10 border border-white/20 dark:border-white/10 rounded-2xl shadow-2xl p-8">
-              <div className="text-center">
-                <div className="animate-pulse">Loading...</div>
-              </div>
-            </div>
-          </div>
-        </motion.div>
-      </AuroraBackground>
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
     }>
       <SignInForm />
     </Suspense>
