@@ -23,13 +23,18 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         password: { label: "Password", type: "password" },
       },
       async authorize(credentials) {
+        console.log("[AUTH] authorize called, credentials keys:", Object.keys(credentials || {}));
+        console.log("[AUTH] email:", (credentials as any)?.email, "password length:", String((credentials as any)?.password || "").length);
+        
         if (!credentials?.password) {
+          console.log("[AUTH] no password, returning null");
           return null;
         }
 
         // Accept both email and username for backwards compatibility
         const { email, username, password } = credentials as any;
         const user = email || username;
+        console.log("[AUTH] user:", user, "validUsername:", process.env.AUTH_USERNAME, "validPassword:", process.env.AUTH_PASSWORD);
 
         if (!user) {
           return null;
