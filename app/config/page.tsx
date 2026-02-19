@@ -116,20 +116,47 @@ export default function ConfigPage() {
     setEditedConfig(updated)
   }
 
+  const autoSave = async (updated: ConfigData) => {
+    setEditedConfig(updated)
+    setIsSaving(true)
+    setSaveStatus("idle")
+    try {
+      const res = await fetch("/api/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config: updated }),
+      })
+      if (res.ok) {
+        setConfig(JSON.parse(JSON.stringify(updated)))
+        setHasChanges(false)
+        setSaveStatus("success")
+        setTimeout(() => setSaveStatus("idle"), 3000)
+      } else {
+        setSaveStatus("error")
+        setTimeout(() => setSaveStatus("idle"), 5000)
+      }
+    } catch {
+      setSaveStatus("error")
+      setTimeout(() => setSaveStatus("idle"), 5000)
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   const addAgent = (agent: any) => {
     if (!editedConfig) return
     const updated = JSON.parse(JSON.stringify(editedConfig))
     if (!updated.agents) updated.agents = {}
     if (!updated.agents.list) updated.agents.list = []
     updated.agents.list.push(agent)
-    setEditedConfig(updated)
+    autoSave(updated)
   }
 
   const deleteAgent = (idx: number) => {
     if (!editedConfig) return
     const updated = JSON.parse(JSON.stringify(editedConfig))
     updated.agents.list.splice(idx, 1)
-    setEditedConfig(updated)
+    autoSave(updated)
   }
 
   const isLogsSection = activeSection === "logs"

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 
-const WORKSPACE_URL = process.env.NEXT_PUBLIC_WORKSPACE_SERVER_URL || "http://localhost:18790";
+const WORKSPACE_URL = process.env.WORKSPACE_SERVER_URL || process.env.NEXT_PUBLIC_WORKSPACE_SERVER_URL || "http://localhost:18790";
 
 export async function GET() {
   try {
