@@ -223,7 +223,7 @@ export default function DashboardPage() {
               {agents.map((agent) => {
                 const currentIssue = getAgentCurrentIssue(agent.id)
                 return (
-                  <Link key={agent.id} href={`/agents/${agent.id}`} data-testid={`agent-card-${agent.id}`}>
+                  <Link key={agent.id} href={`/config?agent=${agent.id}`} data-testid={`agent-card-${agent.id}`}>
                     <Card className="hover:border-foreground/20 transition-colors cursor-pointer h-full">
                       <CardContent className="p-5 space-y-4">
                         {/* Header row */}

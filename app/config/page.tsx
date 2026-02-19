@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState, useCallback, useRef, useMemo } from "react"
+import { useEffect, useState, useCallback, useRef, useMemo, Suspense } from "react"
+import { useSearchParams } from "next/navigation"
 import { Card, CardContent, Badge } from "@/components/ds"
 import { Button } from "@/components/ds/button"
 import {
@@ -40,12 +41,22 @@ const MODELS = [
 ]
 
 /* ── Page ──────────────────────────────────────────── */
-export default function ConfigPage() {
+export default function ConfigPageWrapper() {
+  return (
+    <Suspense fallback={<div className="flex items-center justify-center py-24 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading...</div>}>
+      <ConfigPage />
+    </Suspense>
+  )
+}
+
+function ConfigPage() {
+  const searchParams = useSearchParams()
   const [config, setConfig] = useState<ConfigData | null>(null)
   const [editedConfig, setEditedConfig] = useState<ConfigData | null>(null)
   const [activeSection, setActiveSection] = useState("gateway")
   const [expandedAgent, setExpandedAgent] = useState<string | null>(null)
   const [agentSubTab, setAgentSubTab] = useState<SubTab>("configuration")
+  const [initialAgentHandled, setInitialAgentHandled] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "success" | "error">("idle")
@@ -77,6 +88,18 @@ export default function ConfigPage() {
   }, [])
 
   useEffect(() => { fetchConfig() }, [fetchConfig])
+
+  // Auto-expand agent from ?agent= query param
+  useEffect(() => {
+    if (initialAgentHandled || agents.length === 0) return
+    const agentParam = searchParams.get("agent")
+    if (agentParam && agents.some(a => a.id === agentParam)) {
+      setExpandedAgent(agentParam)
+      setActiveSection(`agent:${agentParam}`)
+      setAgentSubTab("configuration")
+    }
+    setInitialAgentHandled(true)
+  }, [agents, searchParams, initialAgentHandled])
 
   useEffect(() => {
     if (config && editedConfig) {

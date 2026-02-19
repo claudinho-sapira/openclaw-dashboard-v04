@@ -312,7 +312,7 @@ export default function ShowcasePage() {
             <CardContent className="p-6 space-y-4">
               <Breadcrumb items={[
                 { label: "Dashboard", href: "/" },
-                { label: "Agents", href: "/agents" },
+                { label: "Agents", href: "/config?agent=pm" },
                 { label: "Luna" },
               ]} />
               <Breadcrumb items={[
