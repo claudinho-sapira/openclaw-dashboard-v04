@@ -36,13 +36,19 @@ const getCachedLinearIssues = unstable_cache(
         const assignee = await issue.assignee;
         const labels = await issue.labels();
         
-        // Determine column based on state type + name
+        // Determine column based on state name (exact match first) then type
         const stateName = (state?.name || "").toLowerCase();
-        let column: "backlog" | "in-progress" | "in-review" | "done";
-        if (state?.type === "backlog" || state?.type === "unstarted") {
+        type Column = "backlog" | "in-progress" | "ready-for-qa" | "in-review" | "ready-for-dev" | "done";
+        let column: Column;
+
+        // Exact state name mapping
+        if (stateName === "ready for qa") {
+          column = "ready-for-qa";
+        } else if (stateName === "ready for dev") {
+          column = "ready-for-dev";
+        } else if (state?.type === "backlog" || state?.type === "unstarted") {
           column = "backlog";
         } else if (state?.type === "started") {
-          // Check if it's in review/QA (state name contains "review", "qa", "testing")
           if (stateName.includes("review") || stateName.includes("qa") || stateName.includes("testing")) {
             column = "in-review";
           } else {

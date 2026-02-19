@@ -16,7 +16,7 @@ interface LinearIssue {
   description: string
   state: string
   stateType: string
-  column: "backlog" | "in-progress" | "in-review" | "done"
+  column: "backlog" | "in-progress" | "ready-for-qa" | "in-review" | "ready-for-dev" | "done"
   priority: number
   priorityLabel: string
   assignee: string | null
@@ -37,17 +37,16 @@ interface Agent {
 /* ── Column config ─────────────────────────────────────── */
 
 const COLUMNS = [
-  { id: "backlog", title: "Backlog", color: "bg-gray-400" },
-  { id: "in-progress", title: "In Progress", color: "bg-blue-500" },
-  { id: "in-review", title: "In Review / QA", color: "bg-amber-500" },
-  { id: "done", title: "Done", color: "bg-green-500" },
+  { id: "backlog", title: "Backlog", color: "bg-gray-400", transition: false },
+  { id: "in-progress", title: "In Progress", color: "bg-blue-500", transition: false },
+  { id: "ready-for-qa", title: "Ready for QA", color: "bg-emerald-400", transition: true },
+  { id: "in-review", title: "In Review / QA", color: "bg-amber-500", transition: false },
+  { id: "ready-for-dev", title: "Ready for Dev", color: "bg-violet-400", transition: true },
+  { id: "done", title: "Done", color: "bg-green-500", transition: false },
 ] as const
 
-const AGENT_MAP: Record<string, { emoji: string; name: string }> = {
-  pm: { emoji: "🎯", name: "Luna" },
-  builder: { emoji: "🔨", name: "Bolt" },
-  qa: { emoji: "🔍", name: "Iris" },
-}
+// Dynamic agent map built from /api/agents
+let AGENT_MAP: Record<string, { emoji: string; name: string }> = {}
 
 const POLL_INTERVAL = 30000
 
@@ -93,6 +92,12 @@ export default function KanbanPage() {
       if (agentsRes?.ok) {
         const d = await agentsRes.json()
         setAgents(d.agents || [])
+        // Build dynamic agent map
+        const map: Record<string, { emoji: string; name: string }> = {}
+        for (const a of d.agents || []) {
+          map[a.id] = { emoji: a.identity?.emoji || "🤖", name: a.identity?.name || a.id }
+        }
+        AGENT_MAP = map
       }
       setLastUpdate(new Date())
     } catch { /* swallow */ } finally {
@@ -121,7 +126,7 @@ export default function KanbanPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-display">Kanban</h1>
-          <p className="text-subtitle mt-1">Linear issues across 4 workflow stages</p>
+          <p className="text-subtitle mt-1">Linear issues across 6 workflow stages</p>
         </div>
         <div className="flex items-center gap-3">
           {lastUpdate && (
@@ -149,19 +154,19 @@ export default function KanbanPage() {
         >
           All ({issues.length})
         </button>
-        {Object.entries(AGENT_MAP).map(([id, a]) => {
-          const count = issues.filter(i => i.assigneeId === id).length
+        {agents.map(a => {
+          const count = issues.filter(i => i.assigneeId === a.id).length
           return (
             <button
-              key={id}
-              onClick={() => setFilterAgent(id)}
+              key={a.id}
+              onClick={() => setFilterAgent(a.id)}
               className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
-                filterAgent === id
+                filterAgent === a.id
                   ? "bg-foreground text-background border-foreground"
                   : "bg-transparent text-muted-foreground border-border hover:border-foreground/40"
               }`}
             >
-              {a.emoji} {a.name} ({count})
+              {a.identity?.emoji || "🤖"} {a.identity?.name || a.id} ({count})
             </button>
           )
         })}
@@ -173,7 +178,7 @@ export default function KanbanPage() {
           <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading issues...
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 overflow-x-auto">
           {COLUMNS.map(col => {
             const colItems = columnIssues(col.id)
             return (
@@ -181,8 +186,11 @@ export default function KanbanPage() {
                 {/* Column header */}
                 <div className="flex items-center gap-2 mb-3">
                   <span className={`h-2.5 w-2.5 rounded-full ${col.color}`} />
-                  <h2 className="text-sm font-semibold">{col.title}</h2>
-                  <span className="ml-auto text-xs text-muted-foreground font-mono">
+                  <h2 className="text-xs font-semibold truncate">{col.title}</h2>
+                  {col.transition && (
+                    <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-muted border text-muted-foreground font-medium">→</span>
+                  )}
+                  <span className="ml-auto text-xs text-muted-foreground font-mono shrink-0">
                     {colItems.length}
                   </span>
                 </div>
