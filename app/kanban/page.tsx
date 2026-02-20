@@ -335,6 +335,7 @@ function IssueCard({ issue, isDragging, now, onSelect, onDragStart, onDragEnd }:
   issue: LinearIssue; isDragging: boolean; now: number; onSelect: () => void
   onDragStart: (e: React.DragEvent) => void; onDragEnd: () => void
 }) {
+  const dragRef = useRef(false)
   const agent = issue.assigneeId ? AGENT_MAP[issue.assigneeId] : null
 
   // Time calculations
@@ -369,9 +370,10 @@ function IssueCard({ issue, isDragging, now, onSelect, onDragStart, onDragEnd }:
         isDragging ? "opacity-40 scale-95 ring-2 ring-foreground/20" : ""
       } ${issue.blocked ? "border-red-300 bg-red-50/30" : isAtRisk ? "border-red-200" : ""}`}
       draggable
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onClick={onSelect}
+      onDragStart={(e) => { dragRef.current = true; onDragStart(e) }}
+      onDragEnd={() => { setTimeout(() => { dragRef.current = false }, 50); onDragEnd() }}
+      onMouseDown={() => { dragRef.current = false }}
+      onClick={() => { if (!dragRef.current) onSelect() }}
       data-testid={`issue-${issue.identifier}`}
     >
       <CardContent className="p-3 space-y-2">
@@ -400,7 +402,7 @@ function IssueCard({ issue, isDragging, now, onSelect, onDragStart, onDragEnd }:
         </div>
 
         {/* Title */}
-        <p className="text-sm font-medium leading-snug line-clamp-2">{issue.title}</p>
+        <p className="text-sm font-medium leading-snug line-clamp-2 cursor-pointer hover:text-foreground/80" onClick={(e) => { e.stopPropagation(); onSelect() }}>{issue.title}</p>
 
         {/* Time indicators (only for active columns) */}
         {isActiveColumn && (
