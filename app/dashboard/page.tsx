@@ -281,6 +281,98 @@ export default function DashboardPage() {
           <ActivityFeed agents={agents} formatTimeAgo={formatTimeAgo} />
         </div>
       </div>
+
+      {/* Agent Work Queues */}
+      <div className="mt-8" data-testid="agent-work-queues">
+        <h2 className="text-title mb-4">Agent Work Queues</h2>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {agents
+            .filter(a => a.id !== "d" && a.id !== "dispatcher")
+            .map(agent => {
+              // Find issues assigned to this agent
+              const ownerLabel = `owner:${agent.id === "builder" ? "builder" : agent.id === "pm" ? "pm" : agent.id === "qa" ? "qa" : agent.id}`
+              const agentIssues = issues.filter(i =>
+                i.assigneeId === agent.id ||
+                i.labels.some(l => l.name.toLowerCase() === ownerLabel)
+              )
+              const current = agentIssues.find(i => i.column === "in-progress")
+              const next = agentIssues
+                .filter(i => i.column === "backlog" || i.column === "ready-for-dev" || i.column === "ready-for-qa")
+                .sort((a, b) => a.priority - b.priority)[0]
+              const queueCount = agentIssues.filter(i => i.column !== "done" && i.column !== "in-progress").length
+
+              const statusColor = agent.status !== "running"
+                ? "bg-neutral-400" // Offline
+                : current
+                  ? "bg-green-500" // Working
+                  : "bg-yellow-400" // Idle
+
+              const statusLabel = agent.status !== "running"
+                ? "Offline"
+                : current
+                  ? "Working"
+                  : "Idle"
+
+              return (
+                <Card key={agent.id} className="hover:border-foreground/20 transition-colors" data-testid={`work-queue-${agent.id}`}>
+                  <CardContent className="p-4 space-y-3">
+                    {/* Header: agent + status */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl">{agent.identity.emoji}</span>
+                        <div>
+                          <p className="text-sm font-semibold">{agent.identity.name}</p>
+                          <p className="text-[10px] text-muted-foreground">{agent.identity.role}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className={`h-2 w-2 rounded-full ${statusColor}`} />
+                        <span className={`text-[10px] font-medium ${
+                          statusLabel === "Working" ? "text-green-600" :
+                          statusLabel === "Idle" ? "text-yellow-600" : "text-muted-foreground"
+                        }`}>{statusLabel}</span>
+                      </div>
+                    </div>
+
+                    {/* Current Task */}
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Current</p>
+                      {current ? (
+                        <Link href={`https://linear.app/segurneo/issue/${current.identifier}`} target="_blank" className="block p-2 rounded-md bg-green-50 border border-green-100 hover:border-green-300 transition-colors">
+                          <span className="text-[10px] font-mono text-green-700">{current.identifier}</span>
+                          <p className="text-xs font-medium line-clamp-1 mt-0.5">{current.title}</p>
+                        </Link>
+                      ) : (
+                        <p className="text-xs text-muted-foreground italic py-2">No active task</p>
+                      )}
+                    </div>
+
+                    {/* Next Task */}
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Next up</p>
+                      {next ? (
+                        <Link href={`https://linear.app/segurneo/issue/${next.identifier}`} target="_blank" className="block p-2 rounded-md bg-muted/40 border border-border hover:border-foreground/20 transition-colors">
+                          <span className="text-[10px] font-mono text-muted-foreground">{next.identifier}</span>
+                          <p className="text-xs font-medium line-clamp-1 mt-0.5">{next.title}</p>
+                        </Link>
+                      ) : (
+                        <p className="text-xs text-muted-foreground italic py-2">Queue empty</p>
+                      )}
+                    </div>
+
+                    {/* Queue count */}
+                    <div className="flex items-center justify-between pt-2 border-t text-xs text-muted-foreground">
+                      <span>{queueCount} in queue</span>
+                      <Link href={`/kanban?agent=${agent.id}`} className="text-foreground hover:underline font-medium">
+                        View all →
+                      </Link>
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })}
+        </div>
+      </div>
     </div>
   )
 }
