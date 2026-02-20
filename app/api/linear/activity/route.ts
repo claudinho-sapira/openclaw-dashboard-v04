@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { LinearClient } from "@linear/sdk";
 import { unstable_cache } from "next/cache";
+import { promises as fs } from "fs";
+
+const STALE_PATH = "/tmp/linear-activity-cache.json";
+async function writeStale(data: any[]) { try { await fs.writeFile(STALE_PATH, JSON.stringify({ ts: Date.now(), data })); } catch {} }
+async function readStale(): Promise<any[] | null> { try { const r = JSON.parse(await fs.readFile(STALE_PATH, "utf8")); if (Date.now() - r.ts < 3600_000) return r.data; } catch {} return null; }
 
 const LINEAR_API_KEY = process.env.LINEAR_API_KEY;
 const TEAM_ID = "5a5f0603-9aec-4e33-a76c-b36e6f8a4bbb";
@@ -191,7 +196,7 @@ const getCachedActivity = unstable_cache(
 
     return events.slice(0, 100);
   },
-  ["linear-activity"],
+  ["linear-activity-v2"],
   { revalidate: 120, tags: ["linear-activity"] }
 );
 
@@ -202,15 +207,24 @@ export async function GET(request: NextRequest) {
     if (!LINEAR_API_KEY) return NextResponse.json({ events: [] });
 
     const agentFilter = new URL(request.url).searchParams.get("agent") || "";
-    const events = await getCachedActivity();
+    let events: any[];
+    try {
+      events = await getCachedActivity();
+      writeStale(events); // fire-and-forget
+    } catch (err) {
+      console.error("Activity fetch failed, trying stale:", err);
+      const stale = await readStale();
+      events = stale || [];
+    }
 
     const filtered = agentFilter
-      ? events.filter(e => e.agentId === agentFilter)
+      ? events.filter((e: any) => e.agentId === agentFilter)
       : events;
 
     return NextResponse.json({ events: filtered, total: filtered.length, timestamp: new Date().toISOString() });
   } catch (error) {
     console.error("Failed to fetch activity:", error);
-    return NextResponse.json({ events: [], error: "Failed to fetch activity" });
+    const stale = await readStale();
+    return NextResponse.json({ events: stale || [], error: stale ? "stale" : "Failed to fetch activity" });
   }
 }

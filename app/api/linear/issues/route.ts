@@ -2,11 +2,27 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { LinearClient } from "@linear/sdk";
 import { unstable_cache } from "next/cache";
+import { promises as fs } from "fs";
 
 const LINEAR_API_KEY = process.env.LINEAR_API_KEY;
 const TEAM_ID = "5a5f0603-9aec-4e33-a76c-b36e6f8a4bbb";
+const STALE_CACHE_PATH = "/tmp/linear-issues-cache.json";
 
-// unstable_cache with 60s revalidation — persists across serverless invocations
+// Write last successful result to /tmp for stale fallback
+async function writeStaleCache(data: any[]) {
+  try { await fs.writeFile(STALE_CACHE_PATH, JSON.stringify({ ts: Date.now(), data })); } catch {}
+}
+async function readStaleCache(): Promise<any[] | null> {
+  try {
+    const raw = await fs.readFile(STALE_CACHE_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    // Accept stale data up to 1 hour old
+    if (Date.now() - parsed.ts < 3600_000) return parsed.data;
+  } catch {}
+  return null;
+}
+
+// unstable_cache with 120s revalidation — persists across serverless invocations
 const getCachedLinearIssues = unstable_cache(
   async () => {
     if (!LINEAR_API_KEY) {
@@ -138,8 +154,8 @@ const getCachedLinearIssues = unstable_cache(
 
     return sortedIssues;
   },
-  ["linear-issues"],
-  { revalidate: 60, tags: ["linear-issues"] }
+  ["linear-issues-v2"],
+  { revalidate: 120, tags: ["linear-issues"] }
 );
 
 export async function GET(request: NextRequest) {
@@ -158,29 +174,38 @@ export async function GET(request: NextRequest) {
 
     const issues = await getCachedLinearIssues();
     
+    // Save successful result as stale fallback
+    writeStaleCache(issues); // fire-and-forget
+    
     return NextResponse.json({ 
       issues,
       cached: true,
-      cacheInfo: "60s unstable_cache"
+      cacheInfo: "120s unstable_cache"
     });
   } catch (error) {
     console.error("Failed to fetch Linear issues:", error);
-    console.error("Error details:", error instanceof Error ? error.message : String(error));
-    console.error("Error stack:", error instanceof Error ? error.stack : "");
+    const msg = error instanceof Error ? error.message : String(error);
+    const isRateLimit = msg.includes("rate limit") || msg.includes("429") || msg.includes("too many requests");
     
-    // Check if it's a rate limit error
-    const isRateLimit = error instanceof Error && (
-      error.message.includes("rate limit") || 
-      error.message.includes("429") ||
-      error.message.includes("too many requests")
-    );
+    // Try stale fallback from /tmp
+    const stale = await readStaleCache();
+    if (stale) {
+      console.log(`[Linear API] Serving ${stale.length} stale issues (rate limited or error)`);
+      return NextResponse.json({
+        issues: stale,
+        cached: true,
+        stale: true,
+        cacheInfo: "stale fallback from /tmp",
+        rateLimited: isRateLimit,
+      });
+    }
     
     return NextResponse.json(
       { 
         error: "Failed to fetch issues from Linear", 
-        details: error instanceof Error ? error.message : String(error),
+        details: msg,
         rateLimited: isRateLimit,
-        retryAfter: isRateLimit ? 300 : undefined // 5 min
+        retryAfter: isRateLimit ? 300 : undefined
       },
       { status: isRateLimit ? 429 : 500 }
     );
