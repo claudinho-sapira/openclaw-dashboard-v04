@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import { Card, CardContent, Badge } from "@/components/ds"
 import { Button } from "@/components/ds/button"
+import { useToast } from "@/components/ds/toast"
 import {
   RefreshCw, Clock, AlertCircle, Zap, ExternalLink, Loader2, GripVertical,
 } from "lucide-react"
@@ -78,6 +79,9 @@ export default function KanbanPage() {
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const [filterAgent, setFilterAgent] = useState<string>("all")
   const [selectedIssue, setSelectedIssue] = useState<LinearIssue | null>(null)
+  const [draggedIssue, setDraggedIssue] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<string | null>(null)
+  const { toast } = useToast()
 
   const fetchData = useCallback(async () => {
     try {
@@ -110,6 +114,60 @@ export default function KanbanPage() {
     const iv = setInterval(fetchData, POLL_INTERVAL)
     return () => clearInterval(iv)
   }, [fetchData])
+
+  // Move issue to new column (optimistic + Linear mutation)
+  const moveIssue = useCallback(async (issueId: string, targetColumn: string) => {
+    const issue = issues.find(i => i.id === issueId)
+    if (!issue || issue.column === targetColumn) return
+
+    const prevColumn = issue.column
+    const colName = COLUMNS.find(c => c.id === targetColumn)?.title || targetColumn
+
+    // Optimistic update
+    setIssues(prev => prev.map(i => i.id === issueId ? { ...i, column: targetColumn as any } : i))
+
+    try {
+      const res = await fetch(`/api/linear/issues/${issueId}/move`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ column: targetColumn }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || "Failed to move issue")
+      }
+      toast(`${issue.identifier} → ${colName}`, "success")
+    } catch (err: any) {
+      // Rollback
+      setIssues(prev => prev.map(i => i.id === issueId ? { ...i, column: prevColumn } : i))
+      toast(`Failed to move ${issue.identifier}: ${err.message}`, "error")
+    }
+  }, [issues, toast])
+
+  // Drag handlers
+  const handleDragStart = (e: React.DragEvent, issueId: string) => {
+    e.dataTransfer.setData("text/plain", issueId)
+    e.dataTransfer.effectAllowed = "move"
+    setDraggedIssue(issueId)
+  }
+
+  const handleDragOver = (e: React.DragEvent, colId: string) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = "move"
+    setDropTarget(colId)
+  }
+
+  const handleDragLeave = () => setDropTarget(null)
+
+  const handleDrop = (e: React.DragEvent, colId: string) => {
+    e.preventDefault()
+    const issueId = e.dataTransfer.getData("text/plain")
+    setDraggedIssue(null)
+    setDropTarget(null)
+    if (issueId) moveIssue(issueId, colId)
+  }
+
+  const handleDragEnd = () => { setDraggedIssue(null); setDropTarget(null) }
 
   // Filtered issues
   const filtered = filterAgent === "all"
@@ -182,7 +240,14 @@ export default function KanbanPage() {
           {COLUMNS.map(col => {
             const colItems = columnIssues(col.id)
             return (
-              <div key={col.id} className="flex flex-col min-h-[500px]" data-testid={`column-${col.id}`}>
+              <div
+                key={col.id}
+                className="flex flex-col min-h-[500px]"
+                data-testid={`column-${col.id}`}
+                onDragOver={e => handleDragOver(e, col.id)}
+                onDragLeave={handleDragLeave}
+                onDrop={e => handleDrop(e, col.id)}
+              >
                 {/* Column header */}
                 <div className="flex items-center gap-2 mb-3">
                   <span className={`h-2.5 w-2.5 rounded-full ${col.color}`} />
@@ -196,7 +261,11 @@ export default function KanbanPage() {
                 </div>
 
                 {/* Column body */}
-                <div className="flex-1 space-y-2.5 rounded-lg bg-muted/30 border border-dashed border-border/60 p-2.5">
+                <div className={`flex-1 space-y-2.5 rounded-lg border border-dashed p-2.5 transition-colors ${
+                  dropTarget === col.id
+                    ? "bg-foreground/5 border-foreground/30"
+                    : "bg-muted/30 border-border/60"
+                }`}>
                   {colItems.length === 0 ? (
                     <div className="flex items-center justify-center h-32 text-xs text-muted-foreground">
                       No issues
@@ -206,7 +275,10 @@ export default function KanbanPage() {
                       <IssueCard
                         key={issue.id}
                         issue={issue}
+                        isDragging={draggedIssue === issue.id}
                         onSelect={() => setSelectedIssue(issue)}
+                        onDragStart={e => handleDragStart(e, issue.id)}
+                        onDragEnd={handleDragEnd}
                       />
                     ))
                   )}
@@ -230,19 +302,30 @@ export default function KanbanPage() {
 
 /* ── Issue Card ────────────────────────────────────────── */
 
-function IssueCard({ issue, onSelect }: { issue: LinearIssue; onSelect: () => void }) {
+function IssueCard({ issue, isDragging, onSelect, onDragStart, onDragEnd }: {
+  issue: LinearIssue; isDragging: boolean; onSelect: () => void
+  onDragStart: (e: React.DragEvent) => void; onDragEnd: () => void
+}) {
   const agent = issue.assigneeId ? AGENT_MAP[issue.assigneeId] : null
 
   return (
     <Card
-      className="hover:border-foreground/20 transition-colors cursor-pointer"
+      className={`hover:border-foreground/20 transition-all cursor-grab active:cursor-grabbing ${
+        isDragging ? "opacity-40 scale-95 ring-2 ring-foreground/20" : ""
+      }`}
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
       onClick={onSelect}
       data-testid={`issue-${issue.identifier}`}
     >
       <CardContent className="p-3 space-y-2">
-        {/* Top row: identifier + priority */}
+        {/* Top row: grip + identifier + priority */}
         <div className="flex items-center justify-between">
-          <span className="text-[11px] font-mono text-muted-foreground">{issue.identifier}</span>
+          <div className="flex items-center gap-1">
+            <GripVertical className="h-3 w-3 text-muted-foreground/40" />
+            <span className="text-[11px] font-mono text-muted-foreground">{issue.identifier}</span>
+          </div>
           <span className="text-xs" title={issue.priorityLabel}>{priorityDot(issue.priority)}</span>
         </div>
 
