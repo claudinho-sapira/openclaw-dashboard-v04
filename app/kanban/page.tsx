@@ -82,6 +82,7 @@ export default function KanbanPage() {
   const [draggedIssue, setDraggedIssue] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
   const [now, setNow] = useState(Date.now())
+  const [rateLimited, setRateLimited] = useState(false)
   const { toast } = useToast()
 
   // Tick every 30s for real-time timer updates
@@ -96,9 +97,10 @@ export default function KanbanPage() {
         fetch("/api/linear/issues").catch(() => null),
         fetch("/api/agents").catch(() => null),
       ])
-      if (issuesRes?.ok) {
+      if (issuesRes) {
         const d = await issuesRes.json()
-        setIssues(d.issues || [])
+        if (d.issues?.length) setIssues(d.issues)
+        setRateLimited(!!d.rateLimited || !!d.stale)
       }
       if (agentsRes?.ok) {
         const d = await agentsRes.json()
@@ -205,6 +207,18 @@ export default function KanbanPage() {
           </Button>
         </div>
       </div>
+
+      {/* Rate limit banner */}
+      {rateLimited && issues.length > 0 && (
+        <div className="mb-4 px-3 py-2 rounded-md bg-amber-50 border border-amber-200 text-xs text-amber-700">
+          ⚠️ Linear API rate limited — showing cached data. Will auto-refresh when available.
+        </div>
+      )}
+      {rateLimited && issues.length === 0 && (
+        <div className="mb-4 px-3 py-2 rounded-md bg-red-50 border border-red-200 text-xs text-red-700">
+          🚨 Linear API rate limited — no cached data available. Issues will appear when the rate limit resets (~hourly).
+        </div>
+      )}
 
       {/* Agent filter chips */}
       <div className="flex items-center gap-2 mb-6" data-testid="agent-filter">
