@@ -17,15 +17,15 @@ interface LinearIssue {
   description: string
   state: string
   stateType: string
-  column: "backlog" | "in-progress" | "ready-for-qa" | "in-review" | "ready-for-dev" | "done"
+  column: "backlog" | "ready-for-dev" | "in-progress" | "ready-for-qa" | "under-review" | "done"
   priority: number
   priorityLabel: string
   assignee: string | null
   assigneeId: string | null
   createdAt: string
   updatedAt: string
-  url: string
-  labels: { id: string; name: string; color: string }[]
+  url: string | null
+  labels: { id: string; name: string; color?: string }[]
   isNext: boolean
 }
 
@@ -39,10 +39,10 @@ interface Agent {
 
 const COLUMNS = [
   { id: "backlog", title: "Backlog", color: "bg-gray-400", transition: false },
+  { id: "ready-for-dev", title: "Ready for Dev", color: "bg-violet-400", transition: true },
   { id: "in-progress", title: "In Progress", color: "bg-blue-500", transition: false },
   { id: "ready-for-qa", title: "Ready for QA", color: "bg-emerald-400", transition: true },
-  { id: "in-review", title: "In Review / QA", color: "bg-amber-500", transition: false },
-  { id: "ready-for-dev", title: "Ready for Dev", color: "bg-violet-400", transition: true },
+  { id: "under-review", title: "Under Review", color: "bg-amber-500", transition: false },
   { id: "done", title: "Done", color: "bg-green-500", transition: false },
 ] as const
 
@@ -94,7 +94,7 @@ export default function KanbanPage() {
   const fetchData = useCallback(async () => {
     try {
       const [issuesRes, agentsRes] = await Promise.all([
-        fetch("/api/linear/issues").catch(() => null),
+        fetch("/api/tickets").catch(() => null),
         fetch("/api/agents").catch(() => null),
       ])
       if (issuesRes) {
@@ -136,7 +136,7 @@ export default function KanbanPage() {
     setIssues(prev => prev.map(i => i.id === issueId ? { ...i, column: targetColumn as any } : i))
 
     try {
-      const res = await fetch(`/api/linear/issues/${issueId}/move`, {
+      const res = await fetch(`/api/tickets/${issueId}/move`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ column: targetColumn }),
@@ -457,7 +457,7 @@ function IssueDetail({ issue, onClose }: { issue: LinearIssue; onClose: () => vo
   // Fetch issue detail + comments
   useEffect(() => {
     setLoadingComments(true)
-    fetch(`/api/linear/issues/${issue.id}`)
+    fetch(`/api/tickets/${issue.id}`)
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (data) {
@@ -525,11 +525,13 @@ function IssueDetail({ issue, onClose }: { issue: LinearIssue; onClose: () => vo
               <Badge variant="secondary" className="text-[10px]">{issue.state}</Badge>
             </div>
             <div className="flex items-center gap-2">
-              <a href={issue.url} target="_blank" rel="noopener noreferrer">
-                <Button variant="ghost" size="sm" className="h-7 px-2">
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </Button>
-              </a>
+              {issue.url && (
+                <a href={issue.url} target="_blank" rel="noopener noreferrer">
+                  <Button variant="ghost" size="sm" className="h-7 px-2">
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </Button>
+                </a>
+              )}
               <button
                 onClick={onClose}
                 className="p-1.5 rounded-md hover:bg-muted text-muted-foreground"
@@ -665,11 +667,13 @@ function IssueDetail({ issue, onClose }: { issue: LinearIssue; onClose: () => vo
             <Button variant="outline" size="sm" onClick={onClose}>
               Close <span className="text-[10px] text-muted-foreground ml-1.5">Esc</span>
             </Button>
-            <a href={issue.url} target="_blank" rel="noopener noreferrer">
-              <Button size="sm">
-                Open in Linear <ExternalLink className="h-3.5 w-3.5 ml-1.5" />
-              </Button>
-            </a>
+            {issue.url && (
+              <a href={issue.url} target="_blank" rel="noopener noreferrer">
+                <Button size="sm">
+                  Open in Linear <ExternalLink className="h-3.5 w-3.5 ml-1.5" />
+                </Button>
+              </a>
+            )}
           </div>
         </div>
       </div>
