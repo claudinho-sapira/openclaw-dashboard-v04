@@ -84,6 +84,9 @@ export default function KanbanPage() {
   const [draggedIssue, setDraggedIssue] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
   const [now, setNow] = useState(Date.now())
+  const [columnLimits, setColumnLimits] = useState<Record<string, number>>({})
+  const DEFAULT_LIMIT = 10
+  const DONE_LIMIT = 5
   const [rateLimited, setRateLimited] = useState(false)
   const { toast } = useToast()
 
@@ -261,7 +264,10 @@ export default function KanbanPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 overflow-x-auto">
           {COLUMNS.map(col => {
-            const colItems = columnIssues(col.id)
+            const allColItems = columnIssues(col.id)
+            const limit = columnLimits[col.id] || (col.id === "done" ? DONE_LIMIT : DEFAULT_LIMIT)
+            const visibleItems = allColItems.slice(0, limit)
+            const hasMore = allColItems.length > limit
             return (
               <div
                 key={col.id}
@@ -278,8 +284,8 @@ export default function KanbanPage() {
                   {col.transition && (
                     <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-muted border text-muted-foreground font-medium">→</span>
                   )}
-                  <span className="ml-auto text-xs text-muted-foreground font-mono shrink-0">
-                    {colItems.length}
+                  <span className="ml-auto text-[10px] text-muted-foreground font-mono shrink-0">
+                    {visibleItems.length < allColItems.length ? `${visibleItems.length}/${allColItems.length}` : allColItems.length}
                   </span>
                 </div>
 
@@ -289,12 +295,12 @@ export default function KanbanPage() {
                     ? "bg-foreground/5 border-foreground/30"
                     : "bg-muted/30 border-border/60"
                 }`}>
-                  {colItems.length === 0 ? (
+                  {visibleItems.length === 0 ? (
                     <div className="flex items-center justify-center h-32 text-xs text-muted-foreground">
                       No issues
                     </div>
                   ) : (
-                    colItems.map(issue => (
+                    visibleItems.map(issue => (
                       <IssueCard
                         key={issue.id}
                         issue={issue}
@@ -305,6 +311,14 @@ export default function KanbanPage() {
                         onDragEnd={handleDragEnd}
                       />
                     ))
+                  )}
+                  {hasMore && (
+                    <button
+                      onClick={() => setColumnLimits(prev => ({ ...prev, [col.id]: limit + 10 }))}
+                      className="w-full py-2 text-[10px] text-muted-foreground hover:text-foreground border border-dashed rounded-md hover:bg-muted/50 transition-colors"
+                    >
+                      Show 10 more ({allColItems.length - limit} remaining)
+                    </button>
                   )}
                 </div>
               </div>
