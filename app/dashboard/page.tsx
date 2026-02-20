@@ -276,8 +276,8 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Activity Feed — 1 col */}
-        <div className="space-y-4">
+        {/* Activity Feed — 1 col, scrollable independently */}
+        <div className="lg:max-h-[700px] lg:overflow-y-auto lg:sticky lg:top-4">
           <ActivityFeed agents={agents} formatTimeAgo={formatTimeAgo} />
         </div>
       </div>
@@ -321,16 +321,17 @@ function ActivityFeed({ agents, formatTimeAgo }: {
 
   const fetchEvents = useCallback(async () => {
     try {
-      const url = filterAgent !== "all"
-        ? `/api/linear/activity?agent=${filterAgent}`
-        : "/api/linear/activity"
-      const res = await fetch(url)
+      // Always fetch all events — filter client-side for instant switching
+      const res = await fetch("/api/linear/activity")
       if (res.ok) {
         const d = await res.json()
         setEvents(d.events || [])
       }
     } catch {} finally { setIsLoading(false) }
-  }, [filterAgent])
+  }, [])
+
+  // Reset pagination when filter changes
+  useEffect(() => { setVisibleCount(15) }, [filterAgent])
 
   useEffect(() => { fetchEvents() }, [fetchEvents])
   useEffect(() => {
@@ -338,11 +339,11 @@ function ActivityFeed({ agents, formatTimeAgo }: {
     return () => clearInterval(iv)
   }, [fetchEvents])
 
-  // Unique agents from events
-  const eventAgents = Array.from(new Set(events.map(e => e.agentId)))
-    .filter(id => id !== "system" && id !== "unknown")
-
-  const displayEvents = events.slice(0, visibleCount)
+  // Show all known agents as filter chips (not just those in events)
+  const filteredEvents = filterAgent === "all"
+    ? events
+    : events.filter(e => e.agentId === filterAgent)
+  const displayEvents = filteredEvents.slice(0, visibleCount)
 
   return (
     <div data-testid="activity-feed">
@@ -359,7 +360,7 @@ function ActivityFeed({ agents, formatTimeAgo }: {
             filterAgent === "all" ? "bg-foreground text-background border-foreground" : "text-muted-foreground border-border hover:border-foreground/40"
           }`}
         >All</button>
-        {agents.filter(a => eventAgents.includes(a.id)).map(a => (
+        {agents.filter(a => a.id !== "d" && a.id !== "dispatcher").map(a => (
           <button
             key={a.id}
             onClick={() => setFilterAgent(a.id)}
@@ -372,7 +373,7 @@ function ActivityFeed({ agents, formatTimeAgo }: {
 
       <Card className="overflow-hidden">
         <CardContent className="p-0">
-          {events.length === 0 && !isLoading ? (
+          {filteredEvents.length === 0 && !isLoading ? (
             <div className="py-12 text-center text-muted-foreground">
               <Activity className="h-6 w-6 mx-auto mb-2 opacity-40" />
               <p className="text-xs">No handoff events in last 48h</p>
@@ -425,14 +426,14 @@ function ActivityFeed({ agents, formatTimeAgo }: {
               </ul>
 
               {/* Load more */}
-              {visibleCount < events.length && (
+              {visibleCount < filteredEvents.length && (
                 <div className="px-4 py-3 border-t">
                   <button
                     onClick={() => setVisibleCount(prev => prev + 15)}
                     className="w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors"
                     data-testid="activity-load-more"
                   >
-                    Show more ({events.length - visibleCount} remaining)
+                    Show more ({filteredEvents.length - visibleCount} remaining)
                   </button>
                 </div>
               )}
