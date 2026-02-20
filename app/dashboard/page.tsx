@@ -278,57 +278,168 @@ export default function DashboardPage() {
 
         {/* Activity Feed — 1 col */}
         <div className="space-y-4">
-          <h2 className="text-title">Recent Activity</h2>
-          <Card className="overflow-hidden">
-            <CardContent className="p-0">
-              {sessions.length === 0 && !isLoading ? (
-                <div className="py-12 text-center text-muted-foreground">
-                  <Activity className="h-6 w-6 mx-auto mb-2 opacity-40" />
-                  <p className="text-xs">No recent activity</p>
-                </div>
-              ) : (
-                <ul className="divide-y">
-                  {sessions.map((session, idx) => {
-                    const agentId = session.key?.match(/^agent:([^:]+)/)?.[1] || "unknown"
-                    const agentData = agents.find(a => a.id === agentId)
-                    const agent = agentData
-                      ? { emoji: agentData.identity?.emoji || "🤖", name: agentData.identity?.name || agentId }
-                      : { emoji: "🤖", name: agentId }
-
-                    // Derive event type from session key
-                    let eventLabel = session.channel || "activity"
-                    if (session.key?.includes(":main")) eventLabel = "heartbeat"
-                    else if (session.key?.includes("slack")) eventLabel = "slack"
-                    else if (session.key?.includes("thread")) eventLabel = "thread"
-
-                    return (
-                      <li key={session.key || idx} className="px-4 py-3 hover:bg-muted/50 transition-colors">
-                        <div className="flex items-start gap-3">
-                          <span className="text-base mt-0.5">{agent.emoji}</span>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-medium">{agent.name}</span>
-                              <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                                {eventLabel}
-                              </Badge>
-                            </div>
-                            <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                              {session.displayName || session.key}
-                            </p>
-                          </div>
-                          <span className="text-[10px] text-muted-foreground whitespace-nowrap mt-1">
-                            {formatTimeAgo(session.updatedAt)}
-                          </span>
-                        </div>
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
+          <ActivityFeed agents={agents} formatTimeAgo={formatTimeAgo} />
         </div>
       </div>
+    </div>
+  )
+}
+
+/* ── Activity Feed (Handoff Timeline) ──────────────── */
+
+interface HandoffEvent {
+  id: string
+  identifier: string
+  issueTitle: string
+  issueUrl: string
+  agentId: string
+  agentName: string
+  agentEmoji: string
+  action: string
+  actionLabel: string
+  detail: string
+  timestamp: string
+}
+
+const ACTION_STYLES: Record<string, { bg: string; border: string; icon: string }> = {
+  ready_for_qa: { bg: "bg-emerald-50", border: "border-emerald-200", icon: "→ QA" },
+  completed: { bg: "bg-green-50", border: "border-green-200", icon: "✅" },
+  started: { bg: "bg-blue-50", border: "border-blue-200", icon: "▶" },
+  blocked: { bg: "bg-red-50", border: "border-red-200", icon: "🚫" },
+  error: { bg: "bg-red-50", border: "border-red-200", icon: "❌" },
+  near_complete: { bg: "bg-violet-50", border: "border-violet-200", icon: "🏁" },
+}
+
+function ActivityFeed({ agents, formatTimeAgo }: {
+  agents: any[]
+  formatTimeAgo: (d: string | number) => string
+}) {
+  const [events, setEvents] = useState<HandoffEvent[]>([])
+  const [filterAgent, setFilterAgent] = useState<string>("all")
+  const [isLoading, setIsLoading] = useState(true)
+  const [visibleCount, setVisibleCount] = useState(15)
+
+  const fetchEvents = useCallback(async () => {
+    try {
+      const url = filterAgent !== "all"
+        ? `/api/linear/activity?agent=${filterAgent}`
+        : "/api/linear/activity"
+      const res = await fetch(url)
+      if (res.ok) {
+        const d = await res.json()
+        setEvents(d.events || [])
+      }
+    } catch {} finally { setIsLoading(false) }
+  }, [filterAgent])
+
+  useEffect(() => { fetchEvents() }, [fetchEvents])
+  useEffect(() => {
+    const iv = setInterval(fetchEvents, 30000)
+    return () => clearInterval(iv)
+  }, [fetchEvents])
+
+  // Unique agents from events
+  const eventAgents = Array.from(new Set(events.map(e => e.agentId)))
+    .filter(id => id !== "system" && id !== "unknown")
+
+  const displayEvents = events.slice(0, visibleCount)
+
+  return (
+    <div data-testid="activity-feed">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-title">Handoff Timeline</h2>
+        {isLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+      </div>
+
+      {/* Agent filter */}
+      <div className="flex items-center gap-1.5 mb-3 flex-wrap">
+        <button
+          onClick={() => setFilterAgent("all")}
+          className={`px-2.5 py-1 rounded-full text-[10px] font-medium border transition-colors ${
+            filterAgent === "all" ? "bg-foreground text-background border-foreground" : "text-muted-foreground border-border hover:border-foreground/40"
+          }`}
+        >All</button>
+        {agents.filter(a => eventAgents.includes(a.id)).map(a => (
+          <button
+            key={a.id}
+            onClick={() => setFilterAgent(a.id)}
+            className={`px-2.5 py-1 rounded-full text-[10px] font-medium border transition-colors ${
+              filterAgent === a.id ? "bg-foreground text-background border-foreground" : "text-muted-foreground border-border hover:border-foreground/40"
+            }`}
+          >{a.identity?.emoji} {a.identity?.name}</button>
+        ))}
+      </div>
+
+      <Card className="overflow-hidden">
+        <CardContent className="p-0">
+          {events.length === 0 && !isLoading ? (
+            <div className="py-12 text-center text-muted-foreground">
+              <Activity className="h-6 w-6 mx-auto mb-2 opacity-40" />
+              <p className="text-xs">No handoff events in last 48h</p>
+            </div>
+          ) : (
+            <>
+              <ul className="divide-y" data-testid="activity-events">
+                {displayEvents.map(event => {
+                  const style = ACTION_STYLES[event.action] || { bg: "bg-muted/30", border: "border-border", icon: "•" }
+                  return (
+                    <li key={event.id} className="px-4 py-3 hover:bg-muted/30 transition-colors">
+                      <div className="flex items-start gap-3">
+                        {/* Timeline dot */}
+                        <div className="flex flex-col items-center mt-1">
+                          <span className="text-sm">{event.agentEmoji}</span>
+                          <div className="w-px h-full bg-border mt-1" />
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs font-semibold">{event.agentName}</span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full border font-medium ${style.bg} ${style.border}`}>
+                              {style.icon} {event.actionLabel}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 mt-1">
+                            <a
+                              href={event.issueUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[11px] font-mono text-muted-foreground hover:text-foreground hover:underline"
+                              onClick={e => e.stopPropagation()}
+                            >
+                              {event.identifier}
+                            </a>
+                            <span className="text-xs text-muted-foreground truncate">{event.issueTitle}</span>
+                          </div>
+                          {event.detail && (
+                            <p className="text-[10px] text-muted-foreground mt-1 line-clamp-1">{event.detail}</p>
+                          )}
+                        </div>
+
+                        <span className="text-[10px] text-muted-foreground whitespace-nowrap mt-1">
+                          {formatTimeAgo(event.timestamp)}
+                        </span>
+                      </div>
+                    </li>
+                  )
+                })}
+              </ul>
+
+              {/* Load more */}
+              {visibleCount < events.length && (
+                <div className="px-4 py-3 border-t">
+                  <button
+                    onClick={() => setVisibleCount(prev => prev + 15)}
+                    className="w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors"
+                    data-testid="activity-load-more"
+                  >
+                    Show more ({events.length - visibleCount} remaining)
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }
