@@ -1,14 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { LinearClient } from "@linear/sdk";
-import { unstable_cache } from "next/cache";
+
+export const dynamic = "force-dynamic";
 
 const LINEAR_API_KEY = process.env.LINEAR_API_KEY;
 const TEAM_ID = "5a5f0603-9aec-4e33-a76c-b36e6f8a4bbb";
 
-// Cached function to fetch Linear issues (5 min cache)
-const getCachedLinearIssues = unstable_cache(
-  async () => {
+// In-memory cache (per serverless invocation — short-lived)
+let issueCache: { data: any[]; ts: number } | null = null;
+const CACHE_TTL = 15_000; // 15s
+
+async function getLinearIssues() {
+  // Return cached if fresh
+  if (issueCache && Date.now() - issueCache.ts < CACHE_TTL) {
+    return issueCache.data;
+  }
+  const data = await fetchLinearIssues();
+  issueCache = { data, ts: Date.now() };
+  return data;
+}
+
+async function fetchLinearIssues() {
     if (!LINEAR_API_KEY) {
       throw new Error("Linear API key not configured");
     }
@@ -41,11 +54,19 @@ const getCachedLinearIssues = unstable_cache(
         type Column = "backlog" | "in-progress" | "ready-for-qa" | "in-review" | "ready-for-dev" | "done";
         let column: Column;
 
-        // Exact state name mapping
+        // Exact state name mapping (order matters — check specific names before type fallback)
         if (stateName === "ready for qa") {
           column = "ready-for-qa";
         } else if (stateName === "ready for dev") {
           column = "ready-for-dev";
+        } else if (stateName === "in progress") {
+          column = "in-progress";
+        } else if (stateName === "in review") {
+          column = "in-review";
+        } else if (stateName === "done") {
+          column = "done";
+        } else if (stateName === "backlog" || stateName === "todo") {
+          column = "backlog";
         } else if (state?.type === "backlog" || state?.type === "unstarted") {
           column = "backlog";
         } else if (state?.type === "started") {
@@ -125,17 +146,11 @@ const getCachedLinearIssues = unstable_cache(
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
 
-    console.log(`[Linear API] Returning ${sortedIssues.length} issues (cached)`);
-    console.log(`[Linear API] First 3 issues:`, sortedIssues.slice(0, 3).map(i => ({ id: i.identifier, title: i.title, column: i.column })));
+    console.log(`[Linear API] Returning ${sortedIssues.length} issues (cached at ${new Date().toISOString()})`);
+    console.log(`[Linear API] State→Column samples:`, sortedIssues.slice(0, 5).map(i => ({ id: i.identifier, state: i.state, column: i.column })));
 
     return sortedIssues;
-  },
-  ["linear-issues"], // cache key
-  {
-    revalidate: 300, // 5 minutes cache
-    tags: ["linear-issues"],
-  }
-);
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -151,13 +166,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get cached issues
-    const issues = await getCachedLinearIssues();
+    const issues = await getLinearIssues();
     
     return NextResponse.json({ 
       issues,
-      cached: true,
-      cacheInfo: "Data cached for 5 minutes to avoid rate limits"
+      cached: !!(issueCache && Date.now() - issueCache.ts < CACHE_TTL),
+      cacheInfo: "15s in-memory cache, force-dynamic"
     });
   } catch (error) {
     console.error("Failed to fetch Linear issues:", error);

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+// revalidateTag not available in route handlers — using short cache TTL instead
 import { auth } from "@/lib/auth";
 import { LinearClient } from "@linear/sdk";
 
