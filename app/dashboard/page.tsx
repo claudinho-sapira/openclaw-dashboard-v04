@@ -67,7 +67,7 @@ export default function DashboardPage() {
     try {
       const [agentsRes, issuesRes, sessionsRes] = await Promise.all([
         fetch("/api/agents").catch(() => null),
-        fetch("/api/linear/issues").catch(() => null),
+        fetch("/api/tickets").catch(() => null),
         fetch("/api/sessions").catch(() => null),
       ])
 
@@ -338,7 +338,7 @@ export default function DashboardPage() {
                     <div className="space-y-1">
                       <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Current</p>
                       {current ? (
-                        <Link href={`https://linear.app/segurneo/issue/${current.identifier}`} target="_blank" className="block p-2 rounded-md bg-green-50 border border-green-100 hover:border-green-300 transition-colors">
+                        <Link href={`/kanban`} target="_blank" className="block p-2 rounded-md bg-green-50 border border-green-100 hover:border-green-300 transition-colors">
                           <span className="text-[10px] font-mono text-green-700">{current.identifier}</span>
                           <p className="text-xs font-medium line-clamp-1 mt-0.5">{current.title}</p>
                         </Link>
@@ -351,7 +351,7 @@ export default function DashboardPage() {
                     <div className="space-y-1">
                       <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Next up</p>
                       {next ? (
-                        <Link href={`https://linear.app/segurneo/issue/${next.identifier}`} target="_blank" className="block p-2 rounded-md bg-muted/40 border border-border hover:border-foreground/20 transition-colors">
+                        <Link href={`/kanban`} target="_blank" className="block p-2 rounded-md bg-muted/40 border border-border hover:border-foreground/20 transition-colors">
                           <span className="text-[10px] font-mono text-muted-foreground">{next.identifier}</span>
                           <p className="text-xs font-medium line-clamp-1 mt-0.5">{next.title}</p>
                         </Link>
@@ -414,7 +414,7 @@ function ActivityFeed({ agents, formatTimeAgo }: {
   const fetchEvents = useCallback(async () => {
     try {
       // Always fetch all events — filter client-side for instant switching
-      const res = await fetch("/api/linear/activity")
+      const res = await fetch("/api/tickets")
       if (res.ok) {
         const d = await res.json()
         setEvents(d.events || [])

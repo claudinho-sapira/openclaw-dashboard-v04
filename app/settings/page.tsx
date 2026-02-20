@@ -373,7 +373,6 @@ function EnvironmentSection() {
     { key: "GATEWAY_URL", value: process.env.NEXT_PUBLIC_GATEWAY_URL || "—", sensitive: false },
     { key: "WORKSPACE_SERVER_URL", value: process.env.NEXT_PUBLIC_WORKSPACE_SERVER_URL || "—", sensitive: false },
     { key: "GATEWAY_TOKEN", value: "••••••••", sensitive: true, hint: "Set in Vercel env vars" },
-    { key: "LINEAR_API_KEY", value: "••••••••", sensitive: true, hint: "Set in Vercel env vars" },
     { key: "AUTH_SECRET", value: "••••••••", sensitive: true, hint: "NextAuth v5" },
     { key: "NEXTAUTH_URL", value: process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_GATEWAY_URL?.replace(/:\d+$/, "") || "—", sensitive: false },
     { key: "GOOGLE_ENABLED", value: process.env.NEXT_PUBLIC_GOOGLE_ENABLED || "false", sensitive: false },

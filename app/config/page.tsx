@@ -936,7 +936,7 @@ function AgentBacklog({ agentId, agentName }: { agentId: string; agentName: stri
     (async () => {
       setIsLoading(true)
       try {
-        const res = await fetch("/api/linear/issues")
+        const res = await fetch("/api/tickets")
         if (res.ok) {
           const data = await res.json()
           const all = data.issues || []
@@ -983,7 +983,7 @@ function AgentTaskHistory({ agentId, agentName }: { agentId: string; agentName: 
     (async () => {
       setIsLoading(true)
       try {
-        const res = await fetch("/api/linear/issues")
+        const res = await fetch("/api/tickets")
         if (res.ok) {
           const data = await res.json()
           const all = data.issues || []
