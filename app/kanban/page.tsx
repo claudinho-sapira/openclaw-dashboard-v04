@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback, useRef } from "react"
+import { useEffect, useState, useCallback, useRef, useMemo } from "react"
 import { Card, CardContent, Badge } from "@/components/ds"
 import { Button } from "@/components/ds/button"
 import { useToast } from "@/components/ds/toast"
@@ -81,7 +81,14 @@ export default function KanbanPage() {
   const [selectedIssue, setSelectedIssue] = useState<LinearIssue | null>(null)
   const [draggedIssue, setDraggedIssue] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
+  const [now, setNow] = useState(Date.now())
   const { toast } = useToast()
+
+  // Tick every 30s for real-time timer updates
+  useEffect(() => {
+    const iv = setInterval(() => setNow(Date.now()), 30000)
+    return () => clearInterval(iv)
+  }, [])
 
   const fetchData = useCallback(async () => {
     try {
@@ -276,6 +283,7 @@ export default function KanbanPage() {
                         key={issue.id}
                         issue={issue}
                         isDragging={draggedIssue === issue.id}
+                        now={now}
                         onSelect={() => setSelectedIssue(issue)}
                         onDragStart={e => handleDragStart(e, issue.id)}
                         onDragEnd={handleDragEnd}
@@ -302,17 +310,43 @@ export default function KanbanPage() {
 
 /* ── Issue Card ────────────────────────────────────────── */
 
-function IssueCard({ issue, isDragging, onSelect, onDragStart, onDragEnd }: {
-  issue: LinearIssue; isDragging: boolean; onSelect: () => void
+function IssueCard({ issue, isDragging, now, onSelect, onDragStart, onDragEnd }: {
+  issue: LinearIssue; isDragging: boolean; now: number; onSelect: () => void
   onDragStart: (e: React.DragEvent) => void; onDragEnd: () => void
 }) {
   const agent = issue.assigneeId ? AGENT_MAP[issue.assigneeId] : null
 
+  // Time calculations
+  const updatedMs = new Date(issue.updatedAt).getTime()
+  const createdMs = new Date(issue.createdAt).getTime()
+  const sinceUpdate = now - updatedMs
+  const sinceCreated = now - createdMs
+
+  // Activity freshness (based on last update)
+  const freshness: "green" | "yellow" | "red" =
+    sinceUpdate < 10 * 60000 ? "green" :
+    sinceUpdate < 20 * 60000 ? "yellow" : "red"
+
+  const isAtRisk = sinceUpdate > 20 * 60000 && issue.column !== "done" && issue.column !== "backlog"
+
+  // Time in state (approximation: use updatedAt as proxy — real startedAt comes from detail panel)
+  const timeInState = formatDuration(sinceUpdate)
+  const lastActivity = timeAgo(issue.updatedAt)
+
+  // Freshness colors
+  const freshnessColors = {
+    green: "bg-green-500",
+    yellow: "bg-yellow-400",
+    red: "bg-red-500",
+  }
+
+  const isActiveColumn = issue.column !== "done" && issue.column !== "backlog"
+
   return (
     <Card
-      className={`hover:border-foreground/20 transition-all cursor-grab active:cursor-grabbing ${
+      className={`hover:border-foreground/20 transition-all cursor-grab active:cursor-grabbing group ${
         isDragging ? "opacity-40 scale-95 ring-2 ring-foreground/20" : ""
-      }`}
+      } ${isAtRisk ? "border-red-200" : ""}`}
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
@@ -320,20 +354,43 @@ function IssueCard({ issue, isDragging, onSelect, onDragStart, onDragEnd }: {
       data-testid={`issue-${issue.identifier}`}
     >
       <CardContent className="p-3 space-y-2">
-        {/* Top row: grip + identifier + priority */}
+        {/* Top row: grip + identifier + freshness + priority */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
             <GripVertical className="h-3 w-3 text-muted-foreground/40" />
             <span className="text-[11px] font-mono text-muted-foreground">{issue.identifier}</span>
+            {isActiveColumn && (
+              <span className={`h-1.5 w-1.5 rounded-full ${freshnessColors[freshness]}`} title={`Last activity: ${lastActivity}`} />
+            )}
           </div>
-          <span className="text-xs" title={issue.priorityLabel}>{priorityDot(issue.priority)}</span>
+          <div className="flex items-center gap-1">
+            {isAtRisk && (
+              <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-red-50 border border-red-200 text-red-600 font-semibold" data-testid={`at-risk-${issue.identifier}`}>
+                At Risk
+              </span>
+            )}
+            <span className="text-xs" title={issue.priorityLabel}>{priorityDot(issue.priority)}</span>
+          </div>
         </div>
 
         {/* Title */}
         <p className="text-sm font-medium leading-snug line-clamp-2">{issue.title}</p>
 
-        {/* Bottom row: agent + labels + time */}
-        <div className="flex items-center gap-1.5 flex-wrap pt-1">
+        {/* Time indicators (only for active columns) */}
+        {isActiveColumn && (
+          <div className="flex items-center gap-3 text-[9px] text-muted-foreground" title={`In state: ${timeInState} · Last update: ${lastActivity}`}>
+            <span className="flex items-center gap-0.5">
+              <Clock className="h-2.5 w-2.5" />
+              {timeInState}
+            </span>
+            <span className={`flex items-center gap-0.5 ${freshness === "red" ? "text-red-500 font-medium" : freshness === "yellow" ? "text-yellow-600" : ""}`}>
+              ↻ {lastActivity}
+            </span>
+          </div>
+        )}
+
+        {/* Bottom row: agent + labels */}
+        <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
           {agent && (
             <Badge variant="secondary" className="text-[10px] px-1.5 py-0 gap-0.5">
               {agent.emoji} {agent.name}
@@ -344,14 +401,25 @@ function IssueCard({ issue, isDragging, onSelect, onDragStart, onDragEnd }: {
               {l.name}
             </Badge>
           ))}
-          <span className="ml-auto text-[10px] text-muted-foreground flex items-center gap-0.5">
-            <Clock className="h-2.5 w-2.5" />
-            {timeAgo(issue.updatedAt)}
-          </span>
+          {!isActiveColumn && (
+            <span className="ml-auto text-[10px] text-muted-foreground flex items-center gap-0.5">
+              <Clock className="h-2.5 w-2.5" />
+              {timeAgo(issue.updatedAt)}
+            </span>
+          )}
         </div>
       </CardContent>
     </Card>
   )
+}
+
+function formatDuration(ms: number): string {
+  const mins = Math.floor(ms / 60000)
+  if (mins < 60) return `${mins}m`
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return `${hrs}h ${mins % 60}m`
+  const days = Math.floor(hrs / 24)
+  return `${days}d ${hrs % 24}h`
 }
 
 /* ── Issue Detail Panel (Enhanced) ─────────────────────── */
