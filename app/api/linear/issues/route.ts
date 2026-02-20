@@ -1,27 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { LinearClient } from "@linear/sdk";
-
-export const dynamic = "force-dynamic";
+import { unstable_cache } from "next/cache";
 
 const LINEAR_API_KEY = process.env.LINEAR_API_KEY;
 const TEAM_ID = "5a5f0603-9aec-4e33-a76c-b36e6f8a4bbb";
 
-// In-memory cache (per serverless invocation — short-lived)
-let issueCache: { data: any[]; ts: number } | null = null;
-const CACHE_TTL = 15_000; // 15s
-
-async function getLinearIssues() {
-  // Return cached if fresh
-  if (issueCache && Date.now() - issueCache.ts < CACHE_TTL) {
-    return issueCache.data;
-  }
-  const data = await fetchLinearIssues();
-  issueCache = { data, ts: Date.now() };
-  return data;
-}
-
-async function fetchLinearIssues() {
+// unstable_cache with 60s revalidation — persists across serverless invocations
+const getCachedLinearIssues = unstable_cache(
+  async () => {
     if (!LINEAR_API_KEY) {
       throw new Error("Linear API key not configured");
     }
@@ -150,7 +137,10 @@ async function fetchLinearIssues() {
     console.log(`[Linear API] State→Column samples:`, sortedIssues.slice(0, 5).map(i => ({ id: i.identifier, state: i.state, column: i.column })));
 
     return sortedIssues;
-}
+  },
+  ["linear-issues"],
+  { revalidate: 60, tags: ["linear-issues"] }
+);
 
 export async function GET(request: NextRequest) {
   try {
@@ -166,12 +156,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const issues = await getLinearIssues();
+    const issues = await getCachedLinearIssues();
     
     return NextResponse.json({ 
       issues,
-      cached: !!(issueCache && Date.now() - issueCache.ts < CACHE_TTL),
-      cacheInfo: "15s in-memory cache, force-dynamic"
+      cached: true,
+      cacheInfo: "60s unstable_cache"
     });
   } catch (error) {
     console.error("Failed to fetch Linear issues:", error);

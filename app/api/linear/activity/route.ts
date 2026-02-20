@@ -1,15 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { LinearClient } from "@linear/sdk";
-
-export const dynamic = "force-dynamic";
+import { unstable_cache } from "next/cache";
 
 const LINEAR_API_KEY = process.env.LINEAR_API_KEY;
 const TEAM_ID = "5a5f0603-9aec-4e33-a76c-b36e6f8a4bbb";
-
-// In-memory cache
-let activityCache: { data: any[]; ts: number } | null = null;
-const CACHE_TTL = 60_000; // 1 min
 
 // Agent patterns for comment parsing
 const AGENT_PATTERNS: Record<string, { id: string; name: string; emoji: string }> = {
@@ -36,14 +31,8 @@ interface ActivityEvent {
   timestamp: string
 }
 
-async function getActivity() {
-  if (activityCache && Date.now() - activityCache.ts < CACHE_TTL) return activityCache.data;
-  const data = await fetchActivity();
-  activityCache = { data, ts: Date.now() };
-  return data;
-}
-
-async function fetchActivity() {
+const getCachedActivity = unstable_cache(
+  async () => {
     if (!LINEAR_API_KEY) throw new Error("No key");
 
     const client = new LinearClient({ apiKey: LINEAR_API_KEY });
@@ -201,7 +190,10 @@ async function fetchActivity() {
     events.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
     return events.slice(0, 100);
-}
+  },
+  ["linear-activity"],
+  { revalidate: 120, tags: ["linear-activity"] }
+);
 
 export async function GET(request: NextRequest) {
   try {
@@ -210,7 +202,7 @@ export async function GET(request: NextRequest) {
     if (!LINEAR_API_KEY) return NextResponse.json({ events: [] });
 
     const agentFilter = new URL(request.url).searchParams.get("agent") || "";
-    const events = await getActivity();
+    const events = await getCachedActivity();
 
     const filtered = agentFilter
       ? events.filter(e => e.agentId === agentFilter)
