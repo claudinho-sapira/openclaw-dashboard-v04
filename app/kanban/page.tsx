@@ -27,6 +27,8 @@ interface LinearIssue {
   url: string | null
   labels: { id: string; name: string; color?: string }[]
   isNext: boolean
+  blocked: boolean
+  blockedReason: string
 }
 
 interface Agent {
@@ -363,9 +365,9 @@ function IssueCard({ issue, isDragging, now, onSelect, onDragStart, onDragEnd }:
 
   return (
     <Card
-      className={`hover:border-foreground/20 transition-all cursor-grab active:cursor-grabbing group ${
+      className={`hover:border-foreground/20 transition-all cursor-grab active:cursor-grabbing group relative ${
         isDragging ? "opacity-40 scale-95 ring-2 ring-foreground/20" : ""
-      } ${isAtRisk ? "border-red-200" : ""}`}
+      } ${issue.blocked ? "border-red-300 bg-red-50/30" : isAtRisk ? "border-red-200" : ""}`}
       draggable
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
@@ -383,7 +385,12 @@ function IssueCard({ issue, isDragging, now, onSelect, onDragStart, onDragEnd }:
             )}
           </div>
           <div className="flex items-center gap-1">
-            {isAtRisk && (
+            {issue.blocked && (
+              <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-red-100 border border-red-300 text-red-700 font-bold" title={issue.blockedReason}>
+                🚫 BLOCKED
+              </span>
+            )}
+            {isAtRisk && !issue.blocked && (
               <span className="text-[8px] px-1.5 py-0.5 rounded-full bg-red-50 border border-red-200 text-red-600 font-semibold" data-testid={`at-risk-${issue.identifier}`}>
                 At Risk
               </span>
@@ -518,6 +525,8 @@ function IssueDetail({ issue, agents, onClose, onUpdate }: {
           assignee: data.ticket.assignee ? (AGENT_MAP[data.ticket.assignee]?.name || data.ticket.assignee) : null,
           description: data.ticket.description,
           updatedAt: data.ticket.updated_at,
+          blocked: !!data.ticket.blocked,
+          blockedReason: data.ticket.blocked_reason || "",
         })
       } else {
         toast(data.error || "Update failed", "error")
@@ -686,6 +695,37 @@ function IssueDetail({ issue, agents, onClose, onUpdate }: {
               <div className="flex flex-wrap gap-1.5">{issue.labels.map(l => <Badge key={l.id} variant="outline">{l.name}</Badge>)}</div>
             </div>
           )}
+
+          {/* Blocked toggle */}
+          <div className={`rounded-lg border p-4 ${issue.blocked ? "border-red-300 bg-red-50/50" : "border-border"}`}>
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium">{issue.blocked ? "🚫 Blocked" : "Status"}</p>
+                {issue.blocked && issue.blockedReason && (
+                  <p className="text-xs text-red-600 mt-1">{issue.blockedReason}</p>
+                )}
+              </div>
+              <Button
+                size="sm"
+                variant={issue.blocked ? "outline" : "destructive"}
+                onClick={() => {
+                  if (issue.blocked) {
+                    // Unblock
+                    saveField("blocked", "0")
+                    saveField("blocked_reason", "")
+                  } else {
+                    const reason = prompt("Reason for blocking:")
+                    if (reason !== null) {
+                      saveField("blocked", "1")
+                      if (reason) saveField("blocked_reason", reason)
+                    }
+                  }
+                }}
+              >
+                {issue.blocked ? "Unblock" : "Block"}
+              </Button>
+            </div>
+          </div>
 
           {/* Comments / Activity */}
           <div>

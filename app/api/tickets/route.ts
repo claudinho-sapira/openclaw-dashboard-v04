@@ -43,6 +43,8 @@ export async function GET(request: NextRequest) {
       url: null, // local tickets, no external URL
       labels: (t.labels || []).map((l: string, i: number) => ({ id: `l-${i}`, name: l })),
       isNext: t.status === "backlog" && (t.priority === "P0" || t.priority === "P1"),
+      blocked: !!t.blocked,
+      blockedReason: t.blocked_reason || "",
     }));
 
     return NextResponse.json({ issues, total: issues.length, source: "local" });
