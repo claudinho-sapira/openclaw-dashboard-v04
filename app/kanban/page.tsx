@@ -100,7 +100,7 @@ export default function KanbanPage() {
       if (issuesRes) {
         const d = await issuesRes.json()
         if (d.issues?.length) setIssues(d.issues)
-        setRateLimited(!!d.rateLimited || !!d.stale)
+        setRateLimited(!!d.rateLimited || !!d.stale || issuesRes.status === 429)
       }
       if (agentsRes?.ok) {
         const d = await agentsRes.json()
