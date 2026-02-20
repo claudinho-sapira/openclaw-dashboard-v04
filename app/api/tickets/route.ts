@@ -45,6 +45,7 @@ export async function GET(request: NextRequest) {
       isNext: t.status === "backlog" && (t.priority === "P0" || t.priority === "P1"),
       blocked: !!t.blocked,
       blockedReason: t.blocked_reason || "",
+      project: t.project || null,
     }));
 
     return NextResponse.json({ issues, total: issues.length, source: "local" });

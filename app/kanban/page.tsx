@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useState, useCallback, useRef, useMemo } from "react"
+import { useEffect, useState, useCallback, useRef, useMemo, Suspense } from "react"
+import { useSearchParams, useRouter } from "next/navigation"
 import { Card, CardContent, Badge } from "@/components/ds"
 import { Button } from "@/components/ds/button"
 import { useToast } from "@/components/ds/toast"
@@ -29,6 +30,7 @@ interface LinearIssue {
   isNext: boolean
   blocked: boolean
   blockedReason: string
+  project: string | null
 }
 
 interface Agent {
@@ -75,11 +77,19 @@ function timeAgo(dateStr: string) {
 /* ── Page ──────────────────────────────────────────────── */
 
 export default function KanbanPage() {
+  return <Suspense><KanbanInner /></Suspense>
+}
+
+function KanbanInner() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
   const [issues, setIssues] = useState<LinearIssue[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const [filterAgent, setFilterAgent] = useState<string>("all")
+  const [filterProject, setFilterProject] = useState<string>(searchParams.get("project") || "all")
+  const [viewMode, setViewMode] = useState<"kanban" | "table">(searchParams.get("view") === "table" ? "table" : "kanban")
   const [selectedIssue, setSelectedIssue] = useState<LinearIssue | null>(null)
   const [draggedIssue, setDraggedIssue] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<string | null>(null)
@@ -184,9 +194,17 @@ export default function KanbanPage() {
   const handleDragEnd = () => { setDraggedIssue(null); setDropTarget(null) }
 
   // Filtered issues
-  const filtered = filterAgent === "all"
-    ? issues
-    : issues.filter(i => i.assigneeId === filterAgent)
+  const projects = useMemo(() => {
+    const set = new Set(issues.map(i => i.project).filter(Boolean))
+    return Array.from(set).sort()
+  }, [issues])
+
+  const filtered = useMemo(() => {
+    let f = issues
+    if (filterAgent !== "all") f = f.filter(i => i.assigneeId === filterAgent)
+    if (filterProject !== "all") f = f.filter(i => i.project === filterProject)
+    return f
+  }, [issues, filterAgent, filterProject])
 
   // Group by column
   const columnIssues = (colId: string) =>
@@ -256,8 +274,57 @@ export default function KanbanPage() {
         })}
       </div>
 
-      {/* 4-column Kanban grid */}
-      {isLoading && issues.length === 0 ? (
+      {/* Project filter + View toggle */}
+      <div className="flex items-center gap-4 mb-6">
+        {projects.length > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-label">Project:</span>
+            <select
+              value={filterProject}
+              onChange={e => {
+                setFilterProject(e.target.value)
+                const params = new URLSearchParams(searchParams.toString())
+                if (e.target.value === "all") params.delete("project")
+                else params.set("project", e.target.value)
+                router.replace(`/kanban?${params.toString()}`, { scroll: false })
+              }}
+              className="text-xs border rounded-md px-2 py-1 bg-background"
+            >
+              <option value="all">All projects</option>
+              {projects.map(p => <option key={p} value={p!}>{p}</option>)}
+            </select>
+          </div>
+        )}
+        <div className="ml-auto flex items-center gap-1 bg-muted rounded-md p-0.5">
+          <button
+            onClick={() => {
+              setViewMode("kanban")
+              const params = new URLSearchParams(searchParams.toString())
+              params.delete("view")
+              router.replace(`/kanban?${params.toString()}`, { scroll: false })
+            }}
+            className={`px-2.5 py-1 rounded text-[10px] font-medium transition-colors ${viewMode === "kanban" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
+          >
+            Board
+          </button>
+          <button
+            onClick={() => {
+              setViewMode("table")
+              const params = new URLSearchParams(searchParams.toString())
+              params.set("view", "table")
+              router.replace(`/kanban?${params.toString()}`, { scroll: false })
+            }}
+            className={`px-2.5 py-1 rounded text-[10px] font-medium transition-colors ${viewMode === "table" ? "bg-background shadow-sm" : "text-muted-foreground"}`}
+          >
+            Table
+          </button>
+        </div>
+      </div>
+
+      {/* Board / Table */}
+      {viewMode === "table" ? (
+        <TableView issues={filtered} onSelect={setSelectedIssue} />
+      ) : isLoading && issues.length === 0 ? (
         <div className="flex items-center justify-center py-24 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading issues...
         </div>
@@ -344,6 +411,110 @@ export default function KanbanPage() {
 }
 
 /* ── Issue Card ────────────────────────────────────────── */
+
+/* ── Table View ──────────────────────────────────────── */
+
+function TableView({ issues, onSelect }: { issues: LinearIssue[]; onSelect: (i: LinearIssue) => void }) {
+  const [sortKey, setSortKey] = useState<string>("priority")
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc")
+  const [page, setPage] = useState(0)
+  const PAGE_SIZE = 25
+
+  const toggleSort = (key: string) => {
+    if (sortKey === key) setSortDir(d => d === "asc" ? "desc" : "asc")
+    else { setSortKey(key); setSortDir("asc") }
+  }
+
+  const sorted = useMemo(() => {
+    const arr = [...issues]
+    arr.sort((a, b) => {
+      let va: any, vb: any
+      switch (sortKey) {
+        case "identifier": va = a.identifier; vb = b.identifier; break
+        case "title": va = a.title; vb = b.title; break
+        case "status": va = COLUMNS.findIndex(c => c.id === a.column); vb = COLUMNS.findIndex(c => c.id === b.column); break
+        case "priority": va = a.priority; vb = b.priority; break
+        case "assignee": va = a.assignee || "zzz"; vb = b.assignee || "zzz"; break
+        case "project": va = a.project || "zzz"; vb = b.project || "zzz"; break
+        case "updated": va = a.updatedAt; vb = b.updatedAt; break
+        default: va = a.priority; vb = b.priority
+      }
+      if (va < vb) return sortDir === "asc" ? -1 : 1
+      if (va > vb) return sortDir === "asc" ? 1 : -1
+      return 0
+    })
+    return arr
+  }, [issues, sortKey, sortDir])
+
+  const paged = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+  const totalPages = Math.ceil(sorted.length / PAGE_SIZE)
+
+  const statusBadge = (col: string) => {
+    const c = COLUMNS.find(x => x.id === col)
+    return c ? <span className={`inline-block h-2 w-2 rounded-full ${c.color} mr-1.5`} /> : null
+  }
+
+  const priColor: Record<string, string> = { P0: "text-red-600 bg-red-50", P1: "text-orange-600 bg-orange-50", P2: "text-yellow-600 bg-yellow-50", P3: "text-blue-600 bg-blue-50", P4: "text-gray-500 bg-gray-50" }
+
+  const SortHeader = ({ k, label }: { k: string; label: string }) => (
+    <th
+      className="text-left text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-3 py-2 cursor-pointer hover:text-foreground select-none"
+      onClick={() => toggleSort(k)}
+    >
+      {label} {sortKey === k ? (sortDir === "asc" ? "↑" : "↓") : ""}
+    </th>
+  )
+
+  return (
+    <div className="border rounded-lg overflow-hidden">
+      <table className="w-full text-sm">
+        <thead className="bg-muted/30 border-b">
+          <tr>
+            <SortHeader k="identifier" label="ID" />
+            <SortHeader k="title" label="Title" />
+            <SortHeader k="status" label="Status" />
+            <SortHeader k="priority" label="Priority" />
+            <SortHeader k="assignee" label="Assignee" />
+            <SortHeader k="project" label="Project" />
+            <SortHeader k="updated" label="Updated" />
+          </tr>
+        </thead>
+        <tbody>
+          {paged.map(issue => (
+            <tr
+              key={issue.id}
+              className="border-b hover:bg-muted/20 cursor-pointer transition-colors"
+              onClick={() => onSelect(issue)}
+            >
+              <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground">{issue.identifier}</td>
+              <td className="px-3 py-2 font-medium max-w-[300px] truncate">{issue.title}</td>
+              <td className="px-3 py-2 text-xs">{statusBadge(issue.column)}{issue.state}</td>
+              <td className="px-3 py-2">
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${priColor[issue.priorityLabel] || ""}`}>
+                  {issue.priorityLabel}
+                </span>
+              </td>
+              <td className="px-3 py-2 text-xs">{issue.assignee || <span className="text-muted-foreground">—</span>}</td>
+              <td className="px-3 py-2 text-xs">{issue.project || <span className="text-muted-foreground">—</span>}</td>
+              <td className="px-3 py-2 text-[10px] text-muted-foreground">{timeAgo(issue.updatedAt)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-3 py-2 bg-muted/20 border-t text-xs text-muted-foreground">
+          <span>Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, sorted.length)} of {sorted.length}</span>
+          <div className="flex gap-1">
+            <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="px-2 py-0.5 border rounded hover:bg-muted disabled:opacity-40">Prev</button>
+            <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} className="px-2 py-0.5 border rounded hover:bg-muted disabled:opacity-40">Next</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ── Issue Card ──────────────────────────────────────── */
 
 function IssueCard({ issue, isDragging, now, onSelect, onDragStart, onDragEnd }: {
   issue: LinearIssue; isDragging: boolean; now: number; onSelect: () => void
