@@ -315,7 +315,12 @@ export default function KanbanPage() {
       {selectedIssue && (
         <IssueDetail
           issue={selectedIssue}
+          agents={agents}
           onClose={() => setSelectedIssue(null)}
+          onUpdate={(updated) => {
+            setIssues(prev => prev.map(i => i.id === updated.id ? updated : i))
+            setSelectedIssue(updated)
+          }}
         />
       )}
     </div>
@@ -442,19 +447,31 @@ interface IssueComment {
   id: string
   body: string
   createdAt: string
-  user: { name: string; avatarUrl: string | null } | null
+  user?: { name: string } | null
+  author?: string
 }
 
-function IssueDetail({ issue, onClose }: { issue: LinearIssue; onClose: () => void }) {
-  const agent = issue.assigneeId ? AGENT_MAP[issue.assigneeId] : null
+function IssueDetail({ issue, agents, onClose, onUpdate }: {
+  issue: LinearIssue; agents: Agent[]; onClose: () => void
+  onUpdate: (updated: LinearIssue) => void
+}) {
   const [comments, setComments] = useState<IssueComment[]>([])
   const [loadingComments, setLoadingComments] = useState(true)
-  const [detailData, setDetailData] = useState<{
-    startedAt?: string | null
-    completedAt?: string | null
-  }>({})
+  const [saving, setSaving] = useState(false)
+  const [newComment, setNewComment] = useState("")
+  const [postingComment, setPostingComment] = useState(false)
+  const { toast } = useToast()
 
-  // Fetch issue detail + comments
+  // Editable fields
+  const [editStatus, setEditStatus] = useState<string>(issue.column)
+  const [editPriority, setEditPriority] = useState(issue.priorityLabel)
+  const [editAssignee, setEditAssignee] = useState(issue.assigneeId || "")
+  const [editDescription, setEditDescription] = useState(issue.description || "")
+  const [editingDesc, setEditingDesc] = useState(false)
+
+  const [detailData, setDetailData] = useState<{ startedAt?: string | null; completedAt?: string | null }>({})
+
+  // Fetch detail + comments
   useEffect(() => {
     setLoadingComments(true)
     fetch(`/api/tickets/${issue.id}`)
@@ -462,217 +479,268 @@ function IssueDetail({ issue, onClose }: { issue: LinearIssue; onClose: () => vo
       .then(data => {
         if (data) {
           setComments(data.comments || [])
-          setDetailData({
-            startedAt: data.issue?.startedAt,
-            completedAt: data.issue?.completedAt,
-          })
+          setDetailData({ startedAt: data.issue?.startedAt, completedAt: data.issue?.completedAt })
+          if (data.issue?.description) setEditDescription(data.issue.description)
         }
       })
       .catch(() => {})
       .finally(() => setLoadingComments(false))
   }, [issue.id])
 
-  // Escape key
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose()
-    }
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
   }, [onClose])
 
-  // Column indicator
   const colConfig = COLUMNS.find(c => c.id === issue.column) || COLUMNS[0]
 
-  // Time in state
-  const timeInState = (() => {
-    const ref = issue.column === "done" && detailData.completedAt
-      ? detailData.completedAt
-      : issue.column === "in-progress" && detailData.startedAt
-      ? detailData.startedAt
-      : issue.updatedAt
-    const mins = Math.floor((Date.now() - new Date(ref).getTime()) / 60000)
-    if (mins < 60) return `${mins}m`
-    const hrs = Math.floor(mins / 60)
-    if (hrs < 24) return `${hrs}h ${mins % 60}m`
-    const days = Math.floor(hrs / 24)
-    return `${days}d ${hrs % 24}h`
-  })()
+  // Save field
+  const saveField = async (field: string, value: string) => {
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/tickets/${issue.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [field]: value }),
+      })
+      const data = await res.json()
+      if (res.ok && data.ticket) {
+        toast(`Updated ${field}`, "success")
+        // Reflect change back to parent
+        onUpdate({
+          ...issue,
+          column: data.ticket.status,
+          state: COLUMNS.find(c => c.id === data.ticket.status)?.title || data.ticket.status,
+          priorityLabel: data.ticket.priority,
+          priority: { P0: 0, P1: 1, P2: 2, P3: 3, P4: 4 }[data.ticket.priority as string] ?? 4,
+          assigneeId: data.ticket.assignee,
+          assignee: data.ticket.assignee ? (AGENT_MAP[data.ticket.assignee]?.name || data.ticket.assignee) : null,
+          description: data.ticket.description,
+          updatedAt: data.ticket.updated_at,
+        })
+      } else {
+        toast(data.error || "Update failed", "error")
+        // Revert
+        if (field === "status") setEditStatus(issue.column)
+        if (field === "priority") setEditPriority(issue.priorityLabel)
+        if (field === "assignee") setEditAssignee(issue.assigneeId || "")
+      }
+    } catch { toast("Update failed", "error") }
+    finally { setSaving(false) }
+  }
 
-  // Detect telemetry comments
-  const isTelemetry = (body: string) =>
-    /^\[(START|TELEMETRY|ERROR|BLOCKED|READY_FOR_QA)\]/.test(body.trim())
+  // Post comment
+  const postComment = async () => {
+    if (!newComment.trim()) return
+    setPostingComment(true)
+    try {
+      const res = await fetch(`/api/tickets/${issue.id}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ author: "human", body: newComment.trim() }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setComments(prev => [...prev, {
+          id: data.comment?.id || Date.now().toString(),
+          body: newComment.trim(),
+          createdAt: new Date().toISOString(),
+          user: { name: "Human" },
+          author: "human",
+        }])
+        setNewComment("")
+      }
+    } catch {}
+    finally { setPostingComment(false) }
+  }
+
+  // Tag detection
+  const getCommentTag = (body: string) => {
+    const m = body.trim().match(/^\[(START|TELEMETRY|ERROR|BLOCKED|READY_FOR_QA|QA_PASS|QA_FAIL)\]/)
+    return m ? m[1] : null
+  }
+  const tagColors: Record<string, string> = {
+    START: "bg-blue-100 text-blue-700 border-blue-200",
+    TELEMETRY: "bg-cyan-100 text-cyan-700 border-cyan-200",
+    ERROR: "bg-red-100 text-red-700 border-red-200",
+    BLOCKED: "bg-red-100 text-red-700 border-red-200",
+    READY_FOR_QA: "bg-emerald-100 text-emerald-700 border-emerald-200",
+    QA_PASS: "bg-green-100 text-green-700 border-green-200",
+    QA_FAIL: "bg-red-100 text-red-700 border-red-200",
+  }
+  const authorColors: Record<string, string> = {
+    Bolt: "bg-amber-100 text-amber-800",
+    Luna: "bg-rose-100 text-rose-800",
+    Iris: "bg-violet-100 text-violet-800",
+    Human: "bg-gray-100 text-gray-800",
+    human: "bg-gray-100 text-gray-800",
+  }
+
+  const PRIORITIES = ["P0", "P1", "P2", "P3", "P4"]
 
   return (
     <>
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/30 z-40 animate-in fade-in duration-200"
-        onClick={onClose}
-      />
-
-      {/* Slide-over panel */}
-      <div
-        className="fixed right-0 top-0 bottom-0 w-full max-w-xl bg-background border-l z-50 overflow-y-auto animate-in slide-in-from-right duration-300"
-        data-testid="issue-detail-panel"
-      >
-        {/* Sticky header */}
+      <div className="fixed inset-0 bg-black/30 z-40 animate-in fade-in duration-200" onClick={onClose} />
+      <div className="fixed right-0 top-0 bottom-0 w-full max-w-xl bg-background border-l z-50 overflow-y-auto animate-in slide-in-from-right duration-300" data-testid="issue-detail-panel">
+        {/* Header */}
         <div className="sticky top-0 bg-background/95 backdrop-blur-sm border-b z-10 px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${colConfig.color}`} />
               <span className="text-xs font-mono text-muted-foreground">{issue.identifier}</span>
-              <Badge variant="secondary" className="text-[10px]">{issue.state}</Badge>
+              {saving && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
             </div>
-            <div className="flex items-center gap-2">
-              {issue.url && (
-                <a href={issue.url} target="_blank" rel="noopener noreferrer">
-                  <Button variant="ghost" size="sm" className="h-7 px-2">
-                    <ExternalLink className="h-3.5 w-3.5" />
-                  </Button>
-                </a>
-              )}
-              <button
-                onClick={onClose}
-                className="p-1.5 rounded-md hover:bg-muted text-muted-foreground"
-                data-testid="issue-detail-close"
-              >
-                ✕
-              </button>
-            </div>
+            <button onClick={onClose} className="p-1.5 rounded-md hover:bg-muted text-muted-foreground" data-testid="issue-detail-close">✕</button>
           </div>
         </div>
 
         <div className="p-6 space-y-6">
-          {/* Title */}
           <h2 className="text-lg font-semibold leading-snug">{issue.title}</h2>
 
-          {/* Meta grid */}
+          {/* Editable meta */}
           <div className="grid grid-cols-3 gap-4 py-4 border-y">
+            {/* Status dropdown */}
+            <div>
+              <p className="text-label mb-1.5">Status</p>
+              <select
+                value={editStatus}
+                onChange={e => { setEditStatus(e.target.value); saveField("status", e.target.value); }}
+                className="w-full text-xs border rounded-md px-2 py-1.5 bg-background"
+              >
+                {COLUMNS.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+              </select>
+            </div>
+
+            {/* Priority dropdown */}
             <div>
               <p className="text-label mb-1.5">Priority</p>
-              <span className="text-sm font-medium">{priorityDot(issue.priority)} {issue.priorityLabel}</span>
+              <select
+                value={editPriority}
+                onChange={e => { setEditPriority(e.target.value); saveField("priority", e.target.value); }}
+                className="w-full text-xs border rounded-md px-2 py-1.5 bg-background"
+              >
+                {PRIORITIES.map(p => <option key={p} value={p}>{priorityDot({ P0: 0, P1: 1, P2: 2, P3: 3, P4: 4 }[p] ?? 4)} {p}</option>)}
+              </select>
             </div>
+
+            {/* Assignee dropdown */}
             <div>
               <p className="text-label mb-1.5">Assignee</p>
-              {agent ? (
-                <span className="text-sm font-medium">{agent.emoji} {agent.name}</span>
-              ) : (
-                <span className="text-sm text-muted-foreground">Unassigned</span>
-              )}
-            </div>
-            <div>
-              <p className="text-label mb-1.5">Time in state</p>
-              <span className="text-sm font-medium flex items-center gap-1">
-                <Clock className="h-3 w-3 text-muted-foreground" />
-                {timeInState}
-              </span>
+              <select
+                value={editAssignee}
+                onChange={e => { setEditAssignee(e.target.value); saveField("assignee", e.target.value); }}
+                className="w-full text-xs border rounded-md px-2 py-1.5 bg-background"
+              >
+                <option value="">Unassigned</option>
+                {agents.filter(a => a.id !== "d" && a.id !== "dispatcher").map(a => (
+                  <option key={a.id} value={a.id}>{a.identity?.emoji} {a.identity?.name}</option>
+                ))}
+              </select>
             </div>
           </div>
 
+          {/* Description — click to edit */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-label">Description</p>
+              {!editingDesc && (
+                <button onClick={() => setEditingDesc(true)} className="text-[10px] text-muted-foreground hover:text-foreground">Edit</button>
+              )}
+            </div>
+            {editingDesc ? (
+              <div className="space-y-2">
+                <textarea
+                  value={editDescription}
+                  onChange={e => setEditDescription(e.target.value)}
+                  className="w-full text-sm border rounded-lg p-3 bg-background min-h-[120px] resize-y"
+                  placeholder="Add description..."
+                />
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={() => { saveField("description", editDescription); setEditingDesc(false); }}>Save</Button>
+                  <Button size="sm" variant="outline" onClick={() => { setEditDescription(issue.description || ""); setEditingDesc(false); }}>Cancel</Button>
+                </div>
+              </div>
+            ) : (
+              <div
+                className="text-sm text-muted-foreground whitespace-pre-wrap bg-muted/30 rounded-lg p-4 border leading-relaxed min-h-[60px] cursor-pointer hover:border-foreground/20"
+                onClick={() => setEditingDesc(true)}
+              >
+                {editDescription || <span className="italic">No description. Click to add.</span>}
+              </div>
+            )}
+          </div>
+
           {/* Dates */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <p className="text-label mb-1">Created</p>
-              <span className="text-sm">{new Date(issue.createdAt).toLocaleDateString()} ({timeAgo(issue.createdAt)})</span>
-            </div>
-            <div>
-              <p className="text-label mb-1">Updated</p>
-              <span className="text-sm">{new Date(issue.updatedAt).toLocaleDateString()} ({timeAgo(issue.updatedAt)})</span>
-            </div>
-            {detailData.startedAt && (
-              <div>
-                <p className="text-label mb-1">Started</p>
-                <span className="text-sm">{new Date(detailData.startedAt).toLocaleDateString()}</span>
-              </div>
-            )}
-            {detailData.completedAt && (
-              <div>
-                <p className="text-label mb-1">Completed</p>
-                <span className="text-sm">{new Date(detailData.completedAt).toLocaleDateString()}</span>
-              </div>
-            )}
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div><p className="text-label mb-1">Created</p>{new Date(issue.createdAt).toLocaleDateString()} ({timeAgo(issue.createdAt)})</div>
+            <div><p className="text-label mb-1">Updated</p>{new Date(issue.updatedAt).toLocaleDateString()} ({timeAgo(issue.updatedAt)})</div>
+            {detailData.startedAt && <div><p className="text-label mb-1">Started</p>{new Date(detailData.startedAt).toLocaleDateString()}</div>}
+            {detailData.completedAt && <div><p className="text-label mb-1">Completed</p>{new Date(detailData.completedAt).toLocaleDateString()}</div>}
           </div>
 
           {/* Labels */}
           {issue.labels.length > 0 && (
             <div>
               <p className="text-label mb-2">Labels</p>
-              <div className="flex flex-wrap gap-1.5">
-                {issue.labels.map(l => (
-                  <Badge key={l.id} variant="outline">{l.name}</Badge>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Description */}
-          {issue.description && (
-            <div>
-              <p className="text-label mb-2">Description</p>
-              <div className="text-sm text-muted-foreground whitespace-pre-wrap bg-muted/30 rounded-lg p-4 border leading-relaxed">
-                {issue.description}
-              </div>
+              <div className="flex flex-wrap gap-1.5">{issue.labels.map(l => <Badge key={l.id} variant="outline">{l.name}</Badge>)}</div>
             </div>
           )}
 
           {/* Comments / Activity */}
           <div>
             <p className="text-label mb-3">
-              Activity
-              {!loadingComments && (
-                <span className="text-muted-foreground font-normal ml-1">({comments.length})</span>
-              )}
+              Activity {!loadingComments && <span className="text-muted-foreground font-normal ml-1">({comments.length})</span>}
             </p>
 
             {loadingComments ? (
               <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
-                <Loader2 className="h-4 w-4 animate-spin" /> Loading activity...
-              </div>
-            ) : comments.length === 0 ? (
-              <div className="text-sm text-muted-foreground py-4 text-center">
-                No comments yet
+                <Loader2 className="h-4 w-4 animate-spin" /> Loading...
               </div>
             ) : (
               <div className="space-y-3">
-                {comments.map(c => (
-                  <div
-                    key={c.id}
-                    className={`rounded-lg border p-3 ${
-                      isTelemetry(c.body)
-                        ? "bg-blue-50/50 dark:bg-blue-950/10 border-blue-200 dark:border-blue-900"
-                        : "bg-muted/20"
-                    }`}
-                    data-testid="issue-comment"
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-medium">
-                        {c.user?.name || "System"}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground">
-                        {new Date(c.createdAt).toLocaleString()}
-                      </span>
+                {comments.map(c => {
+                  const tag = getCommentTag(c.body)
+                  const authorName = c.user?.name || c.author || "System"
+                  return (
+                    <div key={c.id} className={`rounded-lg border p-3 ${tag ? "border-l-4" : "bg-muted/20"}`} style={tag ? { borderLeftColor: `var(--${tag.toLowerCase()}-border, #e5e7eb)` } : {}} data-testid="issue-comment">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${authorColors[authorName] || "bg-gray-100 text-gray-700"}`}>
+                          {authorName}
+                        </span>
+                        {tag && (
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full border font-semibold ${tagColors[tag] || ""}`}>
+                            {tag}
+                          </span>
+                        )}
+                        <span className="ml-auto text-[10px] text-muted-foreground">{new Date(c.createdAt).toLocaleString()}</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                        {c.body.length > 500 ? c.body.slice(0, 500) + "…" : c.body}
+                      </div>
                     </div>
-                    <div className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed font-mono text-xs">
-                      {c.body.length > 500 ? c.body.slice(0, 500) + "…" : c.body}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+                  )
+                })}
 
-          {/* Bottom actions */}
-          <div className="pt-4 border-t flex gap-3 sticky bottom-0 bg-background py-4">
-            <Button variant="outline" size="sm" onClick={onClose}>
-              Close <span className="text-[10px] text-muted-foreground ml-1.5">Esc</span>
-            </Button>
-            {issue.url && (
-              <a href={issue.url} target="_blank" rel="noopener noreferrer">
-                <Button size="sm">
-                  Open in Linear <ExternalLink className="h-3.5 w-3.5 ml-1.5" />
-                </Button>
-              </a>
+                {comments.length === 0 && <p className="text-sm text-muted-foreground py-4 text-center">No comments yet</p>}
+
+                {/* New comment textarea */}
+                <div className="pt-3 border-t space-y-2">
+                  <textarea
+                    value={newComment}
+                    onChange={e => setNewComment(e.target.value)}
+                    placeholder="Add a comment as Human..."
+                    className="w-full text-sm border rounded-lg p-3 bg-background min-h-[80px] resize-y"
+                    onKeyDown={e => { if (e.key === "Enter" && e.metaKey) postComment() }}
+                  />
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] text-muted-foreground">⌘+Enter to send</span>
+                    <Button size="sm" onClick={postComment} disabled={postingComment || !newComment.trim()}>
+                      {postingComment ? <Loader2 className="h-3 w-3 animate-spin" /> : "Comment"}
+                    </Button>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         </div>
