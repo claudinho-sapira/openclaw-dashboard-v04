@@ -777,7 +777,7 @@ function IssueDetail({ issue, agents, onClose, onUpdate }: {
   return (
     <>
       <div className="fixed inset-0 bg-black/30 z-40 animate-in fade-in duration-200" onClick={onClose} />
-      <div className="fixed right-0 top-0 bottom-0 w-full max-w-xl bg-background border-l z-50 overflow-y-auto animate-in slide-in-from-right duration-300" data-testid="issue-detail-panel">
+      <div className="fixed inset-0 md:inset-auto md:right-0 md:top-0 md:bottom-0 md:w-full md:max-w-xl bg-background md:border-l z-50 overflow-y-auto animate-in slide-in-from-bottom md:slide-in-from-right duration-300" data-testid="issue-detail-panel">
         {/* Header */}
         <div className="sticky top-0 bg-background/95 backdrop-blur-sm border-b z-10 px-6 py-4">
           <div className="flex items-center justify-between">
@@ -786,15 +786,15 @@ function IssueDetail({ issue, agents, onClose, onUpdate }: {
               <span className="text-xs font-mono text-muted-foreground">{issue.identifier}</span>
               {saving && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
             </div>
-            <button onClick={onClose} className="p-1.5 rounded-md hover:bg-muted text-muted-foreground" data-testid="issue-detail-close">✕</button>
+            <button onClick={onClose} className="p-2 rounded-md hover:bg-muted text-muted-foreground min-h-[44px] min-w-[44px] flex items-center justify-center" data-testid="issue-detail-close">✕</button>
           </div>
         </div>
 
-        <div className="p-6 space-y-6">
-          <h2 className="text-lg font-semibold leading-snug">{issue.title}</h2>
+        <div className="p-4 md:p-6 space-y-5 md:space-y-6 pb-[env(safe-area-inset-bottom,0px)]">
+          <h2 className="text-base md:text-lg font-semibold leading-snug">{issue.title}</h2>
 
           {/* Editable meta */}
-          <div className="grid grid-cols-3 gap-4 py-4 border-y">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 py-4 border-y">
             {/* Status dropdown */}
             <div>
               <p className="text-label mb-1.5">Status</p>
@@ -956,7 +956,8 @@ function IssueDetail({ issue, agents, onClose, onUpdate }: {
                     value={newComment}
                     onChange={e => setNewComment(e.target.value)}
                     placeholder="Add a comment as Human..."
-                    className="w-full text-sm border rounded-lg p-3 bg-background min-h-[80px] resize-y"
+                    className="w-full text-sm border rounded-lg p-3 bg-background min-h-[80px] resize-y text-[16px] md:text-sm"
+                    onFocus={e => setTimeout(() => e.target.scrollIntoView({ behavior: "smooth", block: "center" }), 300)}
                     onKeyDown={e => { if (e.key === "Enter" && e.metaKey) postComment() }}
                   />
                   <div className="flex items-center justify-between">
