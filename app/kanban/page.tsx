@@ -465,47 +465,98 @@ function TableView({ issues, onSelect }: { issues: LinearIssue[]; onSelect: (i: 
   )
 
   return (
-    <div className="border rounded-lg overflow-hidden">
-      <table className="w-full text-sm">
-        <thead className="bg-muted/30 border-b">
-          <tr>
-            <SortHeader k="identifier" label="ID" />
-            <SortHeader k="title" label="Title" />
-            <SortHeader k="status" label="Status" />
-            <SortHeader k="priority" label="Priority" />
-            <SortHeader k="assignee" label="Assignee" />
-            <SortHeader k="project" label="Project" />
-            <SortHeader k="updated" label="Updated" />
-          </tr>
-        </thead>
-        <tbody>
-          {paged.map(issue => (
-            <tr
-              key={issue.id}
-              className="border-b hover:bg-muted/20 cursor-pointer transition-colors"
-              onClick={() => onSelect(issue)}
-            >
-              <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground">{issue.identifier}</td>
-              <td className="px-3 py-2 font-medium max-w-[300px] truncate">{issue.title}</td>
-              <td className="px-3 py-2 text-xs">{statusBadge(issue.column)}{issue.state}</td>
-              <td className="px-3 py-2">
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${priColor[issue.priorityLabel] || ""}`}>
-                  {issue.priorityLabel}
-                </span>
-              </td>
-              <td className="px-3 py-2 text-xs">{issue.assignee || <span className="text-muted-foreground">—</span>}</td>
-              <td className="px-3 py-2 text-xs">{issue.project || <span className="text-muted-foreground">—</span>}</td>
-              <td className="px-3 py-2 text-[10px] text-muted-foreground">{timeAgo(issue.updatedAt)}</td>
+    <div>
+      {/* Sort controls — visible on mobile as dropdown */}
+      <div className="flex items-center gap-2 mb-3 md:hidden">
+        <span className="text-label text-xs">Sort:</span>
+        <select
+          value={sortKey}
+          onChange={e => setSortKey(e.target.value)}
+          className="text-xs border rounded-md px-2 py-1.5 bg-background min-h-[44px]"
+        >
+          <option value="priority">Priority</option>
+          <option value="identifier">ID</option>
+          <option value="title">Title</option>
+          <option value="status">Status</option>
+          <option value="assignee">Assignee</option>
+          <option value="updated">Updated</option>
+        </select>
+        <button onClick={() => setSortDir(d => d === "asc" ? "desc" : "asc")} className="text-xs px-2 py-1.5 border rounded-md min-h-[44px]">
+          {sortDir === "asc" ? "↑ Asc" : "↓ Desc"}
+        </button>
+      </div>
+
+      {/* Mobile: card list */}
+      <div className="md:hidden space-y-2">
+        {paged.map(issue => (
+          <div
+            key={issue.id}
+            className="border rounded-lg p-3 hover:bg-muted/20 active:bg-muted/30 cursor-pointer transition-colors"
+            onClick={() => onSelect(issue)}
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <span className="font-mono text-[11px] text-muted-foreground">{issue.identifier}</span>
+              {statusBadge(issue.column)}
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${priColor[issue.priorityLabel] || ""}`}>
+                {issue.priorityLabel}
+              </span>
+              {issue.assignee && <span className="text-[10px] text-muted-foreground ml-auto">{issue.assignee}</span>}
+            </div>
+            <p className="text-sm font-medium leading-snug line-clamp-2">{issue.title}</p>
+            <div className="flex items-center gap-2 mt-1.5 text-[10px] text-muted-foreground">
+              <span>{issue.state}</span>
+              {issue.project && <><span>·</span><span>{issue.project}</span></>}
+              <span className="ml-auto">{timeAgo(issue.updatedAt)}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Desktop: table */}
+      <div className="hidden md:block border rounded-lg overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-muted/30 border-b">
+            <tr>
+              <SortHeader k="identifier" label="ID" />
+              <SortHeader k="title" label="Title" />
+              <SortHeader k="status" label="Status" />
+              <SortHeader k="priority" label="Priority" />
+              <SortHeader k="assignee" label="Assignee" />
+              <SortHeader k="project" label="Project" />
+              <SortHeader k="updated" label="Updated" />
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {paged.map(issue => (
+              <tr
+                key={issue.id}
+                className="border-b hover:bg-muted/20 cursor-pointer transition-colors"
+                onClick={() => onSelect(issue)}
+              >
+                <td className="px-3 py-2 font-mono text-[11px] text-muted-foreground">{issue.identifier}</td>
+                <td className="px-3 py-2 font-medium max-w-[300px] truncate">{issue.title}</td>
+                <td className="px-3 py-2 text-xs">{statusBadge(issue.column)}{issue.state}</td>
+                <td className="px-3 py-2">
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${priColor[issue.priorityLabel] || ""}`}>
+                    {issue.priorityLabel}
+                  </span>
+                </td>
+                <td className="px-3 py-2 text-xs">{issue.assignee || <span className="text-muted-foreground">—</span>}</td>
+                <td className="px-3 py-2 text-xs">{issue.project || <span className="text-muted-foreground">—</span>}</td>
+                <td className="px-3 py-2 text-[10px] text-muted-foreground">{timeAgo(issue.updatedAt)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between px-3 py-2 bg-muted/20 border-t text-xs text-muted-foreground">
-          <span>Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, sorted.length)} of {sorted.length}</span>
-          <div className="flex gap-1">
-            <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="px-2 py-0.5 border rounded hover:bg-muted disabled:opacity-40">Prev</button>
-            <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} className="px-2 py-0.5 border rounded hover:bg-muted disabled:opacity-40">Next</button>
+        <div className="flex items-center justify-between px-3 py-3 mt-2 bg-muted/20 border rounded-lg text-xs text-muted-foreground">
+          <span>{page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, sorted.length)} of {sorted.length}</span>
+          <div className="flex gap-2">
+            <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="px-3 py-1.5 border rounded hover:bg-muted disabled:opacity-40 min-h-[44px] md:min-h-0">Prev</button>
+            <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} className="px-3 py-1.5 border rounded hover:bg-muted disabled:opacity-40 min-h-[44px] md:min-h-0">Next</button>
           </div>
         </div>
       )}
