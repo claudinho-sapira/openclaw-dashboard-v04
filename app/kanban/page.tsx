@@ -211,12 +211,12 @@ function KanbanInner() {
     filtered.filter(i => i.column === colId)
 
   return (
-    <div className="max-w-[1400px] mx-auto px-6 py-8">
+    <div className="max-w-[1400px] mx-auto px-4 md:px-6 py-6 md:py-8">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4 md:mb-6">
         <div>
-          <h1 className="text-display">Kanban</h1>
-          <p className="text-subtitle mt-1">Linear issues across 6 workflow stages</p>
+          <h1 className="text-display text-xl md:text-2xl">Kanban</h1>
+          <p className="text-subtitle mt-1 text-sm hidden sm:block">Tickets across 6 workflow stages</p>
         </div>
         <div className="flex items-center gap-3">
           {lastUpdate && (
@@ -244,7 +244,7 @@ function KanbanInner() {
       )}
 
       {/* Agent filter chips */}
-      <div className="flex items-center gap-2 mb-6" data-testid="agent-filter">
+      <div className="flex items-center gap-2 mb-4 md:mb-6 overflow-x-auto pb-1 scrollbar-hide" data-testid="agent-filter">
         <span className="text-label mr-1">Filter:</span>
         <button
           onClick={() => setFilterAgent("all")}
@@ -275,7 +275,7 @@ function KanbanInner() {
       </div>
 
       {/* Project filter + View toggle */}
-      <div className="flex items-center gap-4 mb-6">
+      <div className="flex items-center gap-3 md:gap-4 mb-4 md:mb-6 flex-wrap">
         <div className="flex items-center gap-2">
           <span className="text-label">Project:</span>
           <select
@@ -328,7 +328,7 @@ function KanbanInner() {
           <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading issues...
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4 overflow-x-auto">
+        <div className="flex md:grid md:grid-cols-3 lg:grid-cols-6 gap-4 overflow-x-auto snap-x snap-mandatory pb-4 md:pb-0 -mx-4 px-4 md:mx-0 md:px-0">
           {COLUMNS.map(col => {
             const allColItems = columnIssues(col.id)
             const limit = columnLimits[col.id] || (col.id === "done" ? DONE_LIMIT : DEFAULT_LIMIT)
@@ -337,7 +337,7 @@ function KanbanInner() {
             return (
               <div
                 key={col.id}
-                className="flex flex-col min-h-[500px]"
+                className="flex flex-col min-h-[500px] min-w-[85vw] md:min-w-0 snap-center"
                 data-testid={`column-${col.id}`}
                 onDragOver={e => handleDragOver(e, col.id)}
                 onDragLeave={handleDragLeave}
