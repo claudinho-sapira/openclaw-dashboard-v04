@@ -3,7 +3,7 @@
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { LayoutDashboard, BarChart3, Kanban, Settings2, Settings, Bell } from "lucide-react"
+import { LayoutDashboard, BarChart3, Kanban, Settings2, Settings, Bell, Menu, X } from "lucide-react"
 import { useEffect, useState, useCallback, useRef } from "react"
 
 const NAV_ITEMS = [
@@ -20,54 +20,126 @@ interface HeaderProps {
 
 export function Header({ className }: HeaderProps) {
   const pathname = usePathname()
+  const [drawerOpen, setDrawerOpen] = useState(false)
+
+  // Close drawer on route change
+  useEffect(() => { setDrawerOpen(false) }, [pathname])
+
+  // Lock body scroll when drawer open
+  useEffect(() => {
+    if (drawerOpen) document.body.style.overflow = "hidden"
+    else document.body.style.overflow = ""
+    return () => { document.body.style.overflow = "" }
+  }, [drawerOpen])
 
   return (
-    <header
-      data-testid="header"
-      className={cn("sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60", className)}
-    >
-      <div className="flex h-14 items-center px-6">
-        {/* Logo */}
-        <Link href="/dashboard" className="flex items-center gap-2.5 mr-8" data-testid="header-logo">
-          <div className="h-7 w-7 rounded-md bg-primary flex items-center justify-center">
-            <span className="text-primary-foreground text-xs font-bold">OC</span>
-          </div>
-          <span className="font-semibold text-sm tracking-tight hidden sm:inline">OpenClaw</span>
-        </Link>
+    <>
+      <header
+        data-testid="header"
+        className={cn("sticky top-0 z-40 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60", className)}
+      >
+        <div className="flex h-14 items-center px-4 md:px-6">
+          {/* Mobile hamburger */}
+          <button
+            onClick={() => setDrawerOpen(true)}
+            className="md:hidden p-2 -ml-1 mr-2 rounded-md hover:bg-muted min-h-[44px] min-w-[44px] flex items-center justify-center"
+            data-testid="mobile-menu-btn"
+            aria-label="Open menu"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
 
-        {/* Navigation */}
-        <nav className="flex items-center gap-0.5" data-testid="header-nav">
-          {NAV_ITEMS.map((item) => {
-            const isActive = pathname === item.href || pathname?.startsWith(item.href + "/")
-            const Icon = item.icon
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                data-testid={`header-nav-${item.label.toLowerCase()}`}
-                className={cn(
-                  "flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors",
-                  isActive
-                    ? "bg-accent text-foreground font-medium"
-                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                <span className="hidden md:inline">{item.label}</span>
-              </Link>
-            )
-          })}
-        </nav>
+          {/* Logo */}
+          <Link href="/dashboard" className="flex items-center gap-2.5 md:mr-8" data-testid="header-logo">
+            <div className="h-7 w-7 rounded-md bg-primary flex items-center justify-center">
+              <span className="text-primary-foreground text-xs font-bold">OC</span>
+            </div>
+            <span className="font-semibold text-sm tracking-tight hidden sm:inline">OpenClaw</span>
+          </Link>
 
-        {/* Right side */}
-        <div className="ml-auto flex items-center gap-2">
-          <NotificationBell />
-          <div className="h-7 w-7 rounded-full bg-muted flex items-center justify-center">
-            <span className="text-xs font-medium text-muted-foreground">A</span>
+          {/* Desktop nav */}
+          <nav className="hidden md:flex items-center gap-0.5" data-testid="header-nav">
+            {NAV_ITEMS.map((item) => {
+              const isActive = pathname === item.href || pathname?.startsWith(item.href + "/")
+              const Icon = item.icon
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  data-testid={`header-nav-${item.label.toLowerCase()}`}
+                  className={cn(
+                    "flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors",
+                    isActive
+                      ? "bg-accent text-foreground font-medium"
+                      : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                  )}
+                >
+                  <Icon className="h-4 w-4" />
+                  <span className="hidden md:inline">{item.label}</span>
+                </Link>
+              )
+            })}
+          </nav>
+
+          {/* Right side — bell always visible */}
+          <div className="ml-auto flex items-center gap-2">
+            <NotificationBell />
+            <div className="h-7 w-7 rounded-full bg-muted flex items-center justify-center">
+              <span className="text-xs font-medium text-muted-foreground">A</span>
+            </div>
           </div>
         </div>
-      </div>
-    </header>
+      </header>
+
+      {/* Mobile drawer */}
+      {drawerOpen && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/40 z-50 md:hidden animate-in fade-in duration-200"
+            onClick={() => setDrawerOpen(false)}
+          />
+          <div className="fixed left-0 top-0 bottom-0 w-72 bg-background z-50 md:hidden animate-in slide-in-from-left duration-300 border-r shadow-xl">
+            <div className="flex items-center justify-between p-4 border-b">
+              <Link href="/dashboard" className="flex items-center gap-2.5" onClick={() => setDrawerOpen(false)}>
+                <div className="h-7 w-7 rounded-md bg-primary flex items-center justify-center">
+                  <span className="text-primary-foreground text-xs font-bold">OC</span>
+                </div>
+                <span className="font-semibold text-sm">OpenClaw</span>
+              </Link>
+              <button
+                onClick={() => setDrawerOpen(false)}
+                className="p-2 rounded-md hover:bg-muted min-h-[44px] min-w-[44px] flex items-center justify-center"
+                aria-label="Close menu"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <nav className="p-3 space-y-1">
+              {NAV_ITEMS.map((item) => {
+                const isActive = pathname === item.href || pathname?.startsWith(item.href + "/")
+                const Icon = item.icon
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setDrawerOpen(false)}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-3 rounded-md text-sm transition-colors min-h-[44px]",
+                      isActive
+                        ? "bg-accent text-foreground font-medium"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                    )}
+                  >
+                    <Icon className="h-5 w-5" />
+                    {item.label}
+                  </Link>
+                )
+              })}
+            </nav>
+          </div>
+        </>
+      )}
+    </>
   )
 }
 
