@@ -227,7 +227,7 @@ function NotificationBell() {
     <div ref={panelRef} className="relative">
       <button
         onClick={() => setOpen(!open)}
-        className="relative p-1.5 rounded-md hover:bg-muted transition-colors"
+        className="relative p-2 md:p-1.5 rounded-md hover:bg-muted transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
         data-testid="notification-bell"
       >
         <Bell className="h-4 w-4 text-muted-foreground" />
@@ -239,7 +239,7 @@ function NotificationBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 bg-background border rounded-lg shadow-lg z-50 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-200">
+        <div className="fixed inset-x-0 top-14 mx-2 md:mx-0 md:absolute md:inset-auto md:right-0 md:top-full md:mt-2 md:w-80 bg-background border rounded-lg shadow-lg z-50 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-200">
           <div className="flex items-center justify-between px-3 py-2 border-b bg-muted/30">
             <span className="text-xs font-semibold">Notifications</span>
             {unread > 0 && (
@@ -249,7 +249,7 @@ function NotificationBell() {
             )}
           </div>
 
-          <div className="max-h-[360px] overflow-y-auto">
+          <div className="max-h-[60vh] md:max-h-[360px] overflow-y-auto">
             {loading ? (
               <div className="py-8 text-center text-xs text-muted-foreground">Loading...</div>
             ) : notifications.length === 0 ? (
@@ -258,7 +258,7 @@ function NotificationBell() {
               notifications.map(n => (
                 <div
                   key={n.id}
-                  className={`px-3 py-2.5 border-b last:border-0 cursor-pointer hover:bg-muted/30 transition-colors ${n.read ? "opacity-60" : ""}`}
+                  className={`px-3 py-3 md:py-2.5 border-b last:border-0 cursor-pointer hover:bg-muted/30 active:bg-muted/40 transition-colors min-h-[44px] ${n.read ? "opacity-60" : ""}`}
                   onClick={() => { if (!n.read) markRead(n.id) }}
                 >
                   <div className="flex items-start gap-2">
