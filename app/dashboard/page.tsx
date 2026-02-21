@@ -133,22 +133,22 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-8">
+    <div className="max-w-7xl mx-auto px-4 md:px-6 py-6 md:py-8">
       {/* Page Header */}
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-6 md:mb-8">
         <div>
-          <h1 className="text-display">Dashboard</h1>
-          <p className="text-subtitle mt-1">Monitor your OpenClaw agents in real time</p>
+          <h1 className="text-display text-xl md:text-2xl">Dashboard</h1>
+          <p className="text-subtitle mt-1 text-sm">Monitor your OpenClaw agents</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3">
           {lastUpdate && (
-            <span className="text-caption">
+            <span className="text-caption hidden sm:inline">
               Updated {lastUpdate.toLocaleTimeString()}
             </span>
           )}
-          <Button variant="outline" size="sm" onClick={fetchAll} disabled={isLoading}>
+          <Button variant="outline" size="sm" onClick={fetchAll} disabled={isLoading} className="min-h-[44px] min-w-[44px] md:min-h-0 md:min-w-0">
             <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-            Refresh
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
         </div>
       </div>
