@@ -82,7 +82,7 @@ export default function SettingsPage() {
   useEffect(() => { fetchData() }, [fetchData])
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-8">
+    <div className="max-w-7xl mx-auto px-4 md:px-6 py-6 md:py-8">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-display">Settings</h1>
@@ -98,14 +98,14 @@ export default function SettingsPage() {
           <Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading...
         </div>
       ) : (
-        <div className="grid grid-cols-[220px_1fr] gap-6">
+        <div className="flex flex-col md:grid md:grid-cols-[220px_1fr] gap-4 md:gap-6">
           {/* Sidebar */}
-          <nav className="space-y-1" data-testid="settings-sidebar">
+          <nav className="flex md:flex-col gap-1 md:gap-0 md:space-y-1 overflow-x-auto md:overflow-visible pb-2 md:pb-0 scrollbar-hide" data-testid="settings-sidebar">
             {SECTIONS.map(section => (
               <button
                 key={section.id}
                 onClick={() => setActiveSection(section.id)}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
+                className={`w-full md:w-auto flex-shrink-0 md:flex-shrink flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-left transition-colors min-h-[44px] ${
                   activeSection === section.id
                     ? "bg-foreground/5 text-foreground font-medium"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
@@ -150,13 +150,13 @@ function GatewayInfoSection({ info, sessions }: { info: GatewayInfo | null; sess
       </div>
 
       {/* Status cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard icon={<Zap className="h-4 w-4" />} label="Version" value={info.version} sub={info.commit} />
         <StatCard icon={<Cpu className="h-4 w-4" />} label="Runtime" value={info.runtime} sub={info.model} />
         <StatCard icon={<Clock className="h-4 w-4" />} label="Timezone" value={info.timezone} sub={info.uptime} />
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <StatCard icon={<Hash className="h-4 w-4" />} label="Sessions" value={String(sessions.length)} sub={`${activeCount} active`} />
         <StatCard icon={<Zap className="h-4 w-4" />} label="Total Tokens" value={totalTokens > 1000000 ? `${(totalTokens / 1000000).toFixed(1)}M` : `${(totalTokens / 1000).toFixed(0)}K`} sub="across all sessions" />
         <StatCard icon={<Globe className="h-4 w-4" />} label="Context" value={info.contextUsage} sub="primary session" />
@@ -248,7 +248,7 @@ function SessionViewer({ sessions }: { sessions: SessionInfo[] }) {
         <p className="text-xs text-muted-foreground mt-1">Browse sessions and inspect conversation history</p>
       </div>
 
-      <div className="grid grid-cols-[280px_1fr] gap-4">
+      <div className="flex flex-col md:grid md:grid-cols-[280px_1fr] gap-4">
         {/* Session list */}
         <div className="space-y-3">
           <input
@@ -256,7 +256,7 @@ function SessionViewer({ sessions }: { sessions: SessionInfo[] }) {
             placeholder="Filter sessions..."
             value={filter}
             onChange={e => setFilter(e.target.value)}
-            className="w-full h-8 px-3 text-xs border rounded-md bg-background font-mono"
+            className="w-full h-10 md:h-8 px-3 text-sm md:text-xs border rounded-md bg-background font-mono text-[16px] md:text-xs"
             data-testid="session-filter"
           />
           <div className="max-h-[600px] overflow-auto space-y-3">

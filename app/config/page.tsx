@@ -207,7 +207,7 @@ function ConfigPage() {
   const currentAgentId = isAgentView ? activeSection.replace("agent:", "") : null
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-8">
+    <div className="max-w-7xl mx-auto px-4 md:px-6 py-6 md:py-8">
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
         <div>
@@ -233,9 +233,9 @@ function ConfigPage() {
       {isLoading ? (
         <div className="flex items-center justify-center py-24 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin mr-2" /> Loading...</div>
       ) : (
-        <div className="grid grid-cols-[240px_1fr] gap-6 mt-4">
+        <div className="flex flex-col md:grid md:grid-cols-[240px_1fr] gap-4 md:gap-6 mt-4">
           {/* Sidebar */}
-          <nav className="space-y-1" data-testid="config-sidebar">
+          <nav className="flex md:flex-col gap-1 md:gap-0 md:space-y-1 overflow-x-auto md:overflow-visible pb-2 md:pb-0 scrollbar-hide" data-testid="config-sidebar">
             {/* Agents section */}
             <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-3 pt-2 pb-1">Agents</p>
             {agents.map(agent => {
@@ -468,7 +468,7 @@ function WorkspaceFiles({ agentId }: { agentId: string }) {
   if (isLoading) return <div className="py-8 text-center text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin inline mr-2" />Loading files...</div>
 
   return (
-    <div className="grid grid-cols-[200px_1fr] gap-4">
+    <div className="flex flex-col md:grid md:grid-cols-[200px_1fr] gap-4">
       {/* File list */}
       <div className="space-y-1">
         <p className="text-label mb-2">Files</p>
