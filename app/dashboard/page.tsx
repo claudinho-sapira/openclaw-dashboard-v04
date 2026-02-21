@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle, StatCard, Badge } from "@/com
 import { Button } from "@/components/ds/button"
 import {
   RefreshCw, Bot, Activity, CheckCircle2, Clock, AlertCircle,
-  ArrowRight, Zap, CircleDot, Loader2,
+  ArrowRight, Zap, CircleDot, Loader2, ChevronDown, ChevronUp,
 } from "lucide-react"
 
 /* ============================================
@@ -62,6 +62,7 @@ export default function DashboardPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
   const [gatewayOk, setGatewayOk] = useState(true)
+  const [expandedQueues, setExpandedQueues] = useState<Record<string, boolean>>({})
 
   const fetchAll = useCallback(async () => {
     try {
@@ -315,35 +316,59 @@ export default function DashboardPage() {
 
               return (
                 <Card key={agent.id} className="hover:border-foreground/20 transition-colors" data-testid={`work-queue-${agent.id}`}>
-                  <CardContent className="p-4 space-y-3">
-                    {/* Header: agent + status */}
-                    <div className="flex items-center justify-between">
+                  <CardContent className="p-0">
+                    {/* Header: agent + status - clickable on mobile */}
+                    <button
+                      className="w-full p-4 flex items-center justify-between hover:bg-muted/30 md:hover:bg-transparent transition-colors text-left md:cursor-default min-h-[60px]"
+                      onClick={() => {
+                        // Only accordion behavior on mobile
+                        if (typeof window !== 'undefined' && window.innerWidth < 768) {
+                          setExpandedQueues(prev => ({ ...prev, [agent.id]: !prev[agent.id] }))
+                        }
+                      }}
+                      data-testid={`work-queue-header-${agent.id}`}
+                    >
                       <div className="flex items-center gap-2">
                         <span className="text-xl">{agent.identity.emoji}</span>
                         <div>
-                          <p className="text-sm font-semibold">{agent.identity.name}</p>
-                          <p className="text-[10px] text-muted-foreground">{agent.identity.role}</p>
+                          <p className="text-base md:text-sm font-semibold">{agent.identity.name}</p>
+                          <p className="text-xs md:text-[10px] text-muted-foreground">{agent.identity.role}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-1.5">
                         <span className={`h-2 w-2 rounded-full ${statusColor}`} />
-                        <span className={`text-[10px] font-medium ${
+                        <span className={`text-xs md:text-[10px] font-medium ${
                           statusLabel === "Working" ? "text-green-600" :
                           statusLabel === "Idle" ? "text-yellow-600" : "text-muted-foreground"
                         }`}>{statusLabel}</span>
                       </div>
-                    </div>
+                      <div className="md:hidden">
+                        {expandedQueues[agent.id] ? 
+                          <ChevronUp className="h-5 w-5 text-muted-foreground" /> :
+                          <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                        }
+                      </div>
+                    </button>
+
+                    {/* Content - collapsible on mobile */}
+                    <div className={`px-4 pb-4 space-y-3 transition-all duration-200 ${
+                      typeof window !== 'undefined' && window.innerWidth < 768 && !expandedQueues[agent.id] 
+                        ? 'hidden md:block' 
+                        : 'block'
+                    } md:block border-t md:border-t-0`}>
 
                     {/* Current Task */}
                     <div className="space-y-1">
                       <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Current</p>
                       {current ? (
-                        <Link href={`/kanban`} target="_blank" className="block p-2 rounded-md bg-green-50 border border-green-100 hover:border-green-300 transition-colors">
-                          <span className="text-[10px] font-mono text-green-700">{current.identifier}</span>
-                          <p className="text-xs font-medium line-clamp-1 mt-0.5">{current.title}</p>
+                        <Link href={`/kanban`} target="_blank" className="block p-3 md:p-2 rounded-md bg-green-50 border border-green-100 hover:border-green-300 transition-colors min-h-[44px] md:min-h-0 flex items-center">
+                          <div>
+                            <span className="text-xs md:text-[10px] font-mono text-green-700">{current.identifier}</span>
+                            <p className="text-sm md:text-xs font-medium line-clamp-1 mt-0.5">{current.title}</p>
+                          </div>
                         </Link>
                       ) : (
-                        <p className="text-xs text-muted-foreground italic py-2">No active task</p>
+                        <p className="text-sm md:text-xs text-muted-foreground italic py-3 md:py-2 min-h-[44px] md:min-h-0 flex items-center">No active task</p>
                       )}
                     </div>
 
@@ -351,21 +376,24 @@ export default function DashboardPage() {
                     <div className="space-y-1">
                       <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Next up</p>
                       {next ? (
-                        <Link href={`/kanban`} target="_blank" className="block p-2 rounded-md bg-muted/40 border border-border hover:border-foreground/20 transition-colors">
-                          <span className="text-[10px] font-mono text-muted-foreground">{next.identifier}</span>
-                          <p className="text-xs font-medium line-clamp-1 mt-0.5">{next.title}</p>
+                        <Link href={`/kanban`} target="_blank" className="block p-3 md:p-2 rounded-md bg-muted/40 border border-border hover:border-foreground/20 transition-colors min-h-[44px] md:min-h-0 flex items-center">
+                          <div>
+                            <span className="text-xs md:text-[10px] font-mono text-muted-foreground">{next.identifier}</span>
+                            <p className="text-sm md:text-xs font-medium line-clamp-1 mt-0.5">{next.title}</p>
+                          </div>
                         </Link>
                       ) : (
-                        <p className="text-xs text-muted-foreground italic py-2">Queue empty</p>
+                        <p className="text-sm md:text-xs text-muted-foreground italic py-3 md:py-2 min-h-[44px] md:min-h-0 flex items-center">Queue empty</p>
                       )}
                     </div>
 
                     {/* Queue count */}
                     <div className="flex items-center justify-between pt-2 border-t text-xs text-muted-foreground">
                       <span>{queueCount} in queue</span>
-                      <Link href={`/kanban?agent=${agent.id}`} className="text-foreground hover:underline font-medium">
+                      <Link href={`/kanban?agent=${agent.id}`} className="text-sm md:text-xs text-foreground hover:underline font-medium min-h-[44px] md:min-h-0 flex items-center">
                         View all →
                       </Link>
+                    </div>
                     </div>
                   </CardContent>
                 </Card>
