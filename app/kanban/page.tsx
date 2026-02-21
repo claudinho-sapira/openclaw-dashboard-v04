@@ -276,25 +276,24 @@ function KanbanInner() {
 
       {/* Project filter + View toggle */}
       <div className="flex items-center gap-4 mb-6">
-        {projects.length > 0 && (
-          <div className="flex items-center gap-2">
-            <span className="text-label">Project:</span>
-            <select
-              value={filterProject}
-              onChange={e => {
-                setFilterProject(e.target.value)
-                const params = new URLSearchParams(searchParams.toString())
-                if (e.target.value === "all") params.delete("project")
-                else params.set("project", e.target.value)
-                router.replace(`/kanban?${params.toString()}`, { scroll: false })
-              }}
-              className="text-xs border rounded-md px-2 py-1 bg-background"
-            >
-              <option value="all">All projects</option>
-              {projects.map(p => <option key={p} value={p!}>{p}</option>)}
-            </select>
-          </div>
-        )}
+        <div className="flex items-center gap-2">
+          <span className="text-label">Project:</span>
+          <select
+            value={filterProject}
+            onChange={e => {
+              setFilterProject(e.target.value)
+              const params = new URLSearchParams(searchParams.toString())
+              if (e.target.value === "all") params.delete("project")
+              else params.set("project", e.target.value)
+              router.replace(`/kanban?${params.toString()}`, { scroll: false })
+            }}
+            className="text-xs border rounded-md px-2 py-1 bg-background min-w-[140px]"
+          >
+            <option value="all">All projects</option>
+            {projects.map(p => <option key={p} value={p!}>{p}</option>)}
+            {projects.length === 0 && <option disabled>No projects yet</option>}
+          </select>
+        </div>
         <div className="ml-auto flex items-center gap-1 bg-muted rounded-md p-0.5">
           <button
             onClick={() => {
