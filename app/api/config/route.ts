@@ -1,7 +1,54 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 
-const WORKSPACE_URL = process.env.WORKSPACE_SERVER_URL || process.env.NEXT_PUBLIC_WORKSPACE_SERVER_URL || "http://localhost:18790";
+// Hardcoded config for Vercel (read-only)
+const FALLBACK_CONFIG = {
+  agents: {
+    defaults: {
+      heartbeat: { every: "5m" },
+      maxConcurrent: 4,
+      subagents: { maxConcurrent: 8, archiveAfterMinutes: 120 },
+    },
+    list: [
+      {
+        id: "pm",
+        default: true,
+        name: "Luna",
+        workspace: "/Users/claudinho/.openclaw/workspace-pm",
+        model: { primary: "anthropic/claude-sonnet-4-5" },
+        identity: { name: "Luna", theme: "sharp product manager, concise, data-driven", emoji: "🎯" },
+      },
+      {
+        id: "builder",
+        name: "Bolt",
+        workspace: "/Users/claudinho/.openclaw/workspace-builder",
+        model: { primary: "anthropic/claude-sonnet-4-5" },
+        identity: { name: "Bolt", theme: "fast precise builder, ships clean code", emoji: "🔨" },
+      },
+      {
+        id: "qa",
+        name: "Iris",
+        workspace: "/Users/claudinho/.openclaw/workspace-qa",
+        model: { primary: "anthropic/claude-sonnet-4-5" },
+        identity: { name: "Iris", theme: "thorough quality assurance, automated testing", emoji: "🔬" },
+      },
+      {
+        id: "d",
+        name: "Dispatcher",
+        workspace: "/Users/claudinho/.openclaw/workspace-dispatcher",
+        model: { primary: "anthropic/claude-sonnet-4-5" },
+        identity: { name: "Dispatcher", theme: "autonomous workflow orchestration", emoji: "🎛️" },
+      },
+      {
+        id: "main",
+        name: "Main",
+        workspace: "/Users/claudinho/.openclaw/workspace",
+        model: { primary: "anthropic/claude-opus-4-6" },
+        identity: { name: "Main", theme: "general purpose assistant", emoji: "🤖" },
+      },
+    ],
+  },
+};
 
 export async function GET() {
   try {
@@ -10,22 +57,27 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const res = await fetch(`${WORKSPACE_URL}/config`, { cache: "no-store" });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      return NextResponse.json(
-        { error: "Failed to read config", details: err.error || res.statusText },
-        { status: 502 }
-      );
+    // Try to read from filesystem (local dev)
+    if (typeof process !== "undefined" && process.env.HOME) {
+      try {
+        const fs = await import("fs/promises");
+        const path = await import("path");
+        const configPath = path.join(process.env.HOME, ".openclaw", "openclaw.json");
+        const configText = await fs.readFile(configPath, "utf-8");
+        const config = JSON.parse(configText);
+        return NextResponse.json({ config });
+      } catch (err) {
+        // Fallback to hardcoded
+      }
     }
 
-    const data = await res.json();
-    return NextResponse.json(data);
+    // Fallback: return hardcoded config (Vercel / serverless)
+    return NextResponse.json({ config: FALLBACK_CONFIG });
   } catch (error) {
     console.error("Config read error:", error);
     return NextResponse.json(
-      { error: "Cannot reach workspace server", details: error instanceof Error ? error.message : String(error) },
-      { status: 502 }
+      { error: "Cannot read config", details: error instanceof Error ? error.message : String(error) },
+      { status: 500 }
     );
   }
 }
@@ -40,16 +92,27 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { config, patch } = body;
 
+    // Check if we're in a serverless environment (Vercel)
+    if (!process.env.HOME || process.env.VERCEL) {
+      return NextResponse.json(
+        { error: "Config editing is read-only in Vercel. Use local dashboard or CLI to edit openclaw.json." },
+        { status: 501 }
+      );
+    }
+
     let finalConfig = config;
 
     if (patch) {
       // Patch mode: read current config, deep-merge, then write
-      const currentRes = await fetch(`${WORKSPACE_URL}/config`, { cache: "no-store" });
-      if (currentRes.ok) {
-        const currentData = await currentRes.json();
-        const current = currentData.config || currentData;
+      try {
+        const fs = await import("fs/promises");
+        const path = await import("path");
+        const configPath = path.join(process.env.HOME, ".openclaw", "openclaw.json");
+        const currentText = await fs.readFile(configPath, "utf-8");
+        const current = JSON.parse(currentText);
         finalConfig = deepMerge(current, patch);
-      } else {
+      } catch (err) {
+        // If config doesn't exist or can't be read, use patch as-is
         finalConfig = patch;
       }
     }
@@ -63,26 +126,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Refusing to save config with 0 agents" }, { status: 400 });
     }
 
-    const res = await fetch(`${WORKSPACE_URL}/config`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ config: finalConfig }),
-    });
+    // Write new config (local only)
+    const fs = await import("fs/promises");
+    const path = await import("path");
+    const configPath = path.join(process.env.HOME, ".openclaw", "openclaw.json");
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      return NextResponse.json(
-        { error: "Failed to write config", details: err.error || res.statusText },
-        { status: 502 }
-      );
+    // Create backup before writing
+    const backupPath = `${configPath}.backup-${Date.now()}`;
+    try {
+      await fs.copyFile(configPath, backupPath);
+    } catch (err) {
+      // Ignore if original doesn't exist
     }
+
+    await fs.writeFile(configPath, JSON.stringify(finalConfig, null, 2), "utf-8");
 
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("Config write error:", error);
     return NextResponse.json(
-      { error: "Cannot reach workspace server", details: error instanceof Error ? error.message : String(error) },
-      { status: 502 }
+      { error: "Cannot write openclaw.json", details: error instanceof Error ? error.message : String(error) },
+      { status: 500 }
     );
   }
 }
