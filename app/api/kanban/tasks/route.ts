@@ -10,12 +10,16 @@ export async function GET(request: NextRequest) {
     }
 
     const url = new URL(request.url);
-    const agent = url.searchParams.get("agent");
+    const assignedTo = url.searchParams.get("assignedTo") || url.searchParams.get("agent");
     const priority = url.searchParams.get("priority");
+    const state = url.searchParams.get("state");
 
-    const where: any = {};
-    if (agent && agent !== "all") where.agent = agent;
+    const where: any = {
+      state: { not: "archived" }, // Exclude archived by default
+    };
+    if (assignedTo && assignedTo !== "all") where.assignedTo = assignedTo;
     if (priority && priority !== "all") where.priority = priority;
+    if (state && state !== "all") where.state = state;
 
     const tasks = await prisma.task.findMany({
       where,
@@ -40,11 +44,11 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await request.json();
-    const { title, description, agent, priority, labels, status } = body;
+    const { title, description, assignedTo, priority, labels, state, lane } = body;
 
-    if (!title || !agent || !priority) {
+    if (!title) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { error: "Missing required field: title" },
         { status: 400 }
       );
     }
@@ -53,14 +57,26 @@ export async function POST(request: NextRequest) {
       data: {
         title,
         description: description || "",
-        agent,
-        priority,
+        assignedTo: assignedTo || null,
+        priority: priority || "medium",
         labels: labels || "",
-        status: status || "todo",
+        state: state || "definition",
+        lane: lane || "feature",
       },
     });
 
-    return NextResponse.json({ task });
+    // Auto-generate code field
+    await prisma.task.update({
+      where: { seq: task.seq },
+      data: { code: `SAP-${task.seq}` },
+    });
+
+    // Fetch updated task with code
+    const updatedTask = await prisma.task.findUnique({
+      where: { seq: task.seq },
+    });
+
+    return NextResponse.json({ task: updatedTask });
   } catch (error) {
     console.error("Failed to create task:", error);
     return NextResponse.json(
