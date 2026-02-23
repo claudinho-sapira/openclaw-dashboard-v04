@@ -1,10 +1,11 @@
 /**
- * Fetch agent identities dynamically from openclaw.json via workspace-server /config endpoint.
+ * Fetch agent identities dynamically from openclaw.json.
  * Returns a map of agentId -> { name, emoji, role, model, workspace }.
  * Falls back to minimal defaults if config is unreachable.
  */
 
-const WORKSPACE_SERVER_URL = process.env.WORKSPACE_SERVER_URL || process.env.NEXT_PUBLIC_WORKSPACE_SERVER_URL || "http://localhost:18790";
+import fs from "fs/promises";
+import path from "path";
 
 export interface AgentIdentity {
   name: string
@@ -24,13 +25,10 @@ export async function getAgentIdentities(): Promise<Record<string, AgentIdentity
   if (cachedIdentities && now - cacheTime < CACHE_TTL) return cachedIdentities;
 
   try {
-    const res = await fetch(`${WORKSPACE_SERVER_URL}/config`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(5000),
-    });
-    if (!res.ok) throw new Error(`Config ${res.status}`);
-    const data = await res.json();
-    const config = data?.config || data;
+    // Read openclaw.json directly from filesystem
+    const configPath = path.join(process.env.HOME || "/Users/claudinho", ".openclaw", "openclaw.json");
+    const configText = await fs.readFile(configPath, "utf-8");
+    const config = JSON.parse(configText);
 
     const agents = config?.agents?.list || [];
     const map: Record<string, AgentIdentity> = {};
@@ -51,7 +49,7 @@ export async function getAgentIdentities(): Promise<Record<string, AgentIdentity
     cacheTime = now;
     return map;
   } catch (err) {
-    console.error("Failed to fetch agent identities from config:", err);
+    console.error("Failed to read agent identities from openclaw.json:", err);
     // Return cache if available, otherwise empty
     return cachedIdentities || {};
   }

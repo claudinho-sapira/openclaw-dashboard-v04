@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,23 +7,127 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============================================================================
+// MODELS (SQLite-compatible - no enums, no Json, limited autoincrement)
+// ============================================================================
+
 model Task {
-  id          String   @id @default(uuid())
+  // Primary ID with autoincrement (SQLite requires this to be the PK for autoincrement)
+  seq         Int      @id @default(autoincrement())
+  
+  // UUID for references
+  id          String   @unique @default(uuid())
+  
+  // Human-readable identifier: SAP-XX (generated in app logic)
+  code        String?  @unique
+  
   title       String
   description String?
-  status      String   // "todo", "in-progress", "hitl", "done"
-  agent       String   // "pm", "builder", "qa"
-  priority    String   // "low", "medium", "high", "urgent"
-  labels      String   // Comma-separated labels
+  
+  // Workflow - using String instead of enum
+  state       String   @default("definition") // TaskState values: definition, ready_for_dev, in_dev, ready_for_qa, in_qa, needs_info, blocked, done, archived
+  lane        String   @default("feature")    // Lane values: feature, bugfix, chore
+  priority    String   @default("medium")     // Priority values: low, medium, high, urgent
+  labels      String   @default("")
+  
+  // Assignment - using String instead of enum
+  assignedTo  String?  // AgentName values: pm, builder, qa, dispatcher, system
+  
+  // Dependencies + subtasks
+  parentTaskId String?
+  parentTask   Task?   @relation("TaskSubtasks", fields: [parentTaskId], references: [id], onDelete: SetNull)
+  subtasks     Task[]  @relation("TaskSubtasks")
+  
+  blockedById  String?
+  blockedBy    Task?   @relation("TaskBlockedBy", fields: [blockedById], references: [id], onDelete: SetNull)
+  blockedTasks Task[]  @relation("TaskBlockedBy")
+  
+  dependencies TaskDependency[] @relation("TaskDependencies")
+  dependents   TaskDependency[] @relation("TaskDependents")
+  
+  // Phase timestamps
+  startedAt    DateTime?
+  qaStartedAt  DateTime?
+  completedAt  DateTime?
+  archivedAt   DateTime?
+  
+  enteredStateAt  DateTime @default(now())
+  lastProgressAt  DateTime @default(now())
+  
+  // SLA
+  dueDate      DateTime?
+  
+  // Planning / velocity
+  estimatedHours Float?
+  actualHours    Float?
+  
+  // Spec / attempts
+  specRevision Int @default(1)
+  devAttempts  Int @default(0)
+  qaAttempts   Int @default(0)
+  
+  // QA bookkeeping
+  qaOutcome   String? // QaOutcome values: pass, fail_reproducible, fail_flaky, fail_infra
+  proofPack   String?
+  qaReport    String?
+  
+  // Concurrency / orchestration
+  version     Int     @default(0)
+  
+  // Lease lock
+  lockOwner   String?   // AgentName
+  lockUntil   DateTime?
+  lockToken   String?
+  
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  
+  events      TaskEvent[]
+  
+  @@index([state, priority, updatedAt])
+  @@index([assignedTo, state, priority])
+  @@index([parentTaskId])
+  @@index([blockedById])
+  @@index([dueDate])
+  @@index([lockUntil])
+  @@index([updatedAt])
 }
 
-model IssueAssignment {
-  id         String   @id @default(uuid())
-  issueId    String   @unique // Linear issue ID (e.g., "e2b77c2b-...")
-  agentName  String   // "pm", "builder", "qa" — primary/dev assignee
-  qaAgent    String?  // QA agent for review phase (e.g., "qa")
-  assignedAt DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+model TaskDependency {
+  id          String   @id @default(uuid())
+  
+  taskId      String
+  dependsOnId String
+  
+  createdAt   DateTime @default(now())
+  
+  task        Task     @relation("TaskDependencies", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOn   Task     @relation("TaskDependents", fields: [dependsOnId], references: [id], onDelete: Cascade)
+  
+  @@unique([taskId, dependsOnId])
+  @@index([taskId])
+  @@index([dependsOnId])
+}
+
+model TaskEvent {
+  id            String   @id @default(uuid())
+  taskId        String
+  ts            DateTime @default(now())
+  actor         String   // AgentName
+  action        String   // TaskEventAction values: assign, unassign, transition, retry, block, unblock, lock, unlock, progress, comment, archive, spec_revision
+  
+  fromState     String?  // TaskState
+  toState       String?  // TaskState
+  reason        String?
+  
+  metadata      String?  // JSON as string - parse in application layer
+  
+  versionBefore Int?
+  versionAfter  Int?
+  
+  task          Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  
+  @@index([taskId, ts])
+  @@index([actor, ts])
+  @@index([action, ts])
 }
